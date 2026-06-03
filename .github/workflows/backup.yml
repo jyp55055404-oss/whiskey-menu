@@ -1,0 +1,44 @@
+name: Daily Firebase Backup
+
+on:
+  schedule:
+    # 매일 04:00 KST (= 전날 19:00 UTC)
+    - cron: '0 19 * * *'
+  workflow_dispatch:   # 수동 실행 버튼도 제공
+
+permissions:
+  contents: write
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Fetch Firebase data and commit backup
+        run: |
+          set -e
+          mkdir -p backups
+          DATE=$(TZ=Asia/Seoul date +'%Y-%m-%d')
+          URL="https://whiskey-menu-464ff-default-rtdb.asia-southeast1.firebasedatabase.app/menu.json"
+          curl -sf "$URL" -o "backups/whiskey_backup_${DATE}.json"
+
+          # 빈/null 응답이면 백업하지 않고 중단 (잘못된 백업 방지)
+          if [ ! -s "backups/whiskey_backup_${DATE}.json" ] || grep -qx 'null' "backups/whiskey_backup_${DATE}.json"; then
+            echo "Firebase returned empty/null - aborting"
+            exit 1
+          fi
+
+          # 최근 30일치만 유지, 오래된 건 삭제
+          ls -1t backups/whiskey_backup_*.json | tail -n +31 | xargs -r rm -f
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add backups/
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Daily backup ${DATE}"
+            git push
+          fi
