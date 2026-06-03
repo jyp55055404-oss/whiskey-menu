@@ -1351,6 +1351,7 @@ body {
   </style>
   <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-database-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
 </head>
 <body>
   <!-- Intro / Entrance View -->
@@ -1719,7 +1720,7 @@ body {
       <h3>관리자 인증</h3>
       <p>비밀번호를 입력하세요</p>
       <div class="pin-input-wrap">
-        <input type="password" id="pin-input" maxlength="4" inputmode="numeric" pattern="[0-9]*" class="pin-input" placeholder="····">
+        <input type="password" id="pin-input" class="pin-input" placeholder="비밀번호" autocomplete="current-password">
       </div>
       <p class="pin-error" id="pin-error" style="display:none;">비밀번호가 틀렸습니다</p>
       <div class="modal-buttons">
@@ -2530,6 +2531,7 @@ function renderAdminList() {
 
 // ===== PIN / Admin Toggle =====
 const ADMIN_PIN = '5858';
+const OWNER_EMAIL = 'owner@whiskey-menu.app';
 const pinModal = document.getElementById('pin-modal');
 const pinInput = document.getElementById('pin-input');
 const pinError = document.getElementById('pin-error');
@@ -2541,18 +2543,32 @@ document.getElementById('admin-toggle').onclick = () => {
   setTimeout(() => pinInput.focus(), 100);
 };
 
+function openAdminView() {
+  pinModal.style.display = 'none';
+  menuView.style.display = 'none';
+  adminView.style.display = 'flex';
+  renderAdminCategories();
+  renderAdminList();
+}
+
 document.getElementById('btn-pin-confirm').onclick = () => {
-  if (pinInput.value === ADMIN_PIN) {
-    pinModal.style.display = 'none';
-    menuView.style.display = 'none';
-    adminView.style.display = 'flex';
-    renderAdminCategories();
-    renderAdminList();
-  } else {
+  const pw = pinInput.value;
+  const btn = document.getElementById('btn-pin-confirm');
+  if (typeof firebase === 'undefined' || !firebase.auth) {
+    pinError.textContent = '연결 오류 — 인터넷을 확인하세요';
     pinError.style.display = 'block';
-    pinInput.value = '';
-    pinInput.focus();
+    return;
   }
+  btn.disabled = true;
+  firebase.auth().signInWithEmailAndPassword(OWNER_EMAIL, pw)
+    .then(() => { btn.disabled = false; openAdminView(); })
+    .catch(() => {
+      btn.disabled = false;
+      pinError.textContent = '비밀번호가 틀렸습니다';
+      pinError.style.display = 'block';
+      pinInput.value = '';
+      pinInput.focus();
+    });
 };
 
 document.getElementById('btn-pin-cancel').onclick = () => {
@@ -2566,6 +2582,7 @@ pinInput.addEventListener('keydown', (e) => {
 pinModal.onclick = (e) => { if (e.target === pinModal) pinModal.style.display = 'none'; };
 
 document.getElementById('btn-close-admin').onclick = () => {
+  try { if (typeof firebase !== 'undefined' && firebase.auth) firebase.auth().signOut(); } catch (e) {}
   adminView.style.display = 'none';
   menuView.style.display = 'flex';
   renderCategories();
