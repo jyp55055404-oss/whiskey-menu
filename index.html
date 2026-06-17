@@ -858,6 +858,22 @@ body {
 /* Make customer menu cards feel clickable */
 .menu-card { cursor: pointer; }
 
+.menu-card.has-thumb {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.menu-card.has-thumb .card-body { flex: 1; min-width: 0; }
+.card-thumb {
+  width: 64px;
+  height: 64px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
 /* Admin card info area clickable for quick edit */
 .admin-item-info { cursor: pointer; }
 .admin-item-info:hover .admin-item-name { color: var(--gold-light); }
@@ -1348,6 +1364,31 @@ body {
   .category-tab:hover { border-color: var(--border); color: var(--text-secondary); }
   .subcategory-tab:hover { color: var(--text-muted); }
 }
+
+.card-recipe {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  font-weight: 300;
+}
+.intro-lang, .menu-lang { display: flex; gap: 6px; }
+.intro-lang { justify-content: center; margin-bottom: 18px; }
+.menu-lang { margin-right: auto; }
+.intro-lang button, .menu-lang button {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 12px;
+  letter-spacing: 1px;
+  padding: 5px 14px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.25s;
+}
+.intro-lang button.active, .menu-lang button.active {
+  border-color: var(--gold);
+  color: var(--gold);
+}
   </style>
   <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-database-compat.js"></script>
@@ -1357,6 +1398,10 @@ body {
   <!-- Intro / Entrance View -->
   <div id="intro-view">
     <div class="intro-inner">
+      <div class="intro-lang" id="intro-lang">
+        <button type="button" data-lang="ko">한국어</button>
+        <button type="button" data-lang="en">English</button>
+      </div>
       <div class="intro-ornament top"></div>
       <div class="intro-eyebrow" id="intro-eyebrow-slot">Whiskey &amp; Spirits</div>
       <h1 class="intro-name" id="intro-name-slot">잇닿을연</h1>
@@ -1401,6 +1446,10 @@ body {
     <nav class="subcategory-nav" id="subcategory-nav"></nav>
     <nav class="subcategory-nav" id="region-nav"></nav>
     <div class="sort-bar" id="sort-bar">
+      <div class="menu-lang" id="menu-lang">
+        <button type="button" data-lang="ko">KO</button>
+        <button type="button" data-lang="en">EN</button>
+      </div>
       <select id="sort-select">
         <option value="default">기본 정렬</option>
         <option value="name-asc">이름 ㄱ→ㅎ</option>
@@ -2203,6 +2252,216 @@ if (items.length === 0) {
   saveData(items);
 }
 
+// ===== Language (KO / EN) =====
+let lang = (storageAvailable && localStorage.getItem('whiskey_lang')) || 'ko';
+const RECIPE_EN = {
+  "d117": "Choose 1: Apricot, Elderflower, Lillet, Peach, Black Cherry, Lavender, Passion Fruit",
+  "mnohepwh4760x": "Choose 1: Ginger, Shiso, Matcha, Chestnut, Yuzu"
+};
+const RECIPE_KO_EN = {
+  "닛카프론티어,탄산수": "Nikka Frontier + Sparkling Water",
+  "니카프론티어,탄산수": "Nikka Frontier + Sparkling Water"
+};
+const NAME_EN = {
+  "[여름한정]닛카프론티어하이볼": "Limited! Nikka Frontier Highball"
+};
+function normKo(s) { return (s || '').replace(/\s+/g, '').replace(/,+/g, ','); }
+function displayName(item) {
+  if (lang === 'en') return NAME_EN[normKo(item.name)] || item.nameEn || item.name;
+  return item.name;
+}
+function recipeLine(item) {
+  if (item.category !== 'cocktail' && item.category !== 'signature') return '';
+  if (RECIPE_EN[item.id]) return RECIPE_EN[item.id];
+  if (!item.notes) return '';
+  const parts = item.notes.split('\n');
+  const en = (parts[1] || '').trim();
+  if (en) return en;
+  const ko = (parts[0] || '').trim();
+  return RECIPE_KO_EN[normKo(ko)] || ko;
+}
+const NOTES_EN = {
+  "d001": "Gentle honey and vanilla with soft oak and a clean malty finish.",
+  "d002": "Toffee and vanilla from the rum cask with the sweetness of ripe tropical fruit.",
+  "d003": "Honey and dried fruit from Madeira wine with warm oaky spice.",
+  "d004": "Vanilla and toffee with sherry-driven raisins and a smooth oak finish.",
+  "d005": "Rich sherry dried fruit and orange with dark chocolate and spicy oak.",
+  "d007": "Intense sherry and orange zest with rich oaky spice in a high-proof mouthful.",
+  "d008": "Subtle grassy notes and honey with nuts in a balance of smooth malt.",
+  "d010": "Raisins and dark chocolate from rich Oloroso sherry in a weighty cask strength.",
+  "d011": "Sweet grapes and honey from Moscatel wine with soft oaky spice.",
+  "d012": "Rich dried fruit from sherry and oak with spice and an intense cask strength.",
+  "d013": "Honey and ripe fruit with subtle oak and a smooth malty finish.",
+  "d015": "Gentle peat smoke with sherried dried fruit and warm spice.",
+  "d016": "Dried fruit and chocolate from sherry and bourbon casks with light smoke and pepper.",
+  "d017": "Rich sherry dried fruit and dark chocolate with subtle smoke.",
+  "d019": "Sherry and the salinity of sea air with honey and faint smoke in a weighty mouthful.",
+  "d021": "Bright fruit and floral notes with honey and citrus in an intense cask strength.",
+  "d022": "Raisins and dark chocolate from rich Oloroso sherry in a weighty cask strength.",
+  "d025": "Dried fruit and honey from the sherry cask with smooth malt and spice.",
+  "d026": "Bright red berries and lime with honey and the intensity of a single cask.",
+  "d027": "Smooth honey and cereal with light fruit notes in a single-cask mouthful.",
+  "d028": "Islay's signature tar and salty sea air with intense peat smoke.",
+  "d030": "Gentle honey and vanilla with citrus and a clean oak finish.",
+  "d031": "Raisins and toffee from Oloroso sherry with warm cinnamon spice.",
+  "d032": "Raisins and honey from sherry with clove and cinnamon and a long finish.",
+  "d033": "Dark chocolate and mint from port wine with ripe dark fruit.",
+  "d034": "Honey and lemon curd from Sauternes wine with vanilla and nutmeg.",
+  "d035": "Rich coffee and dark chocolate from roasted chocolate malt with orange and spice.",
+  "d036": "Honey and ripe fruit with sherried nuts and a rich oak finish.",
+  "d037": "Dried fruit and chocolate from Oloroso and PX sherry with soft spice.",
+  "d038": "Rich sherry raisins and dark chocolate with abundant oaky spice.",
+  "d039": "Deep sherry and dried fruit characteristic of an old bottling with leather and dark chocolate.",
+  "d040": "Dried fruit and chocolate from old-bottling sherry with nuts and spice.",
+  "d042": "Red berries and citrus from multiple casks with vanilla and crème caramel.",
+  "d043": "Rich sherry dried fruit and chocolate in an intense cask strength.",
+  "d044": "Raisins and spice from Oloroso sherry in a weighty cask strength.",
+  "d045": "Salty sea air and citrus with honey and a faintly smoky finish.",
+  "d046": "Gentle honey and heather with smooth malt and a clean finish.",
+  "d049": "Intense peat and iodine with salty sea spray and medicinal smoke.",
+  "d050": "Dried fruit from Oloroso sherry with Laphroaig's signature peat smoke.",
+  "d051": "Rich oak and vanilla from the quarter cask with intense peat smoke.",
+  "d052": "Intense peat and medicinal notes with salinity in a weighty cask strength.",
+  "d054": "Rich peat smoke and tar with citrus and a long medicinal finish.",
+  "d055": "Intense peat and black pepper with dark chocolate in a weighty cask strength.",
+  "d056": "Sherried dried fruit and rich peat smoke in a weighty mouthful.",
+  "d057": "Ardbeg's signature peat smoke with sweet fruit and spice.",
+  "d058": "Extreme peat smoke with the sweetness of a wine cask in an intense cask strength.",
+  "d061": "Overwhelming peat smoke with vanilla and citrus in an intense cask strength.",
+  "d062": "Extreme peat with rich fruit from a wine cask in a weighty cask strength.",
+  "d064": "Rich peat smoke and sherried dried fruit with a long, salty sea-air finish.",
+  "d065": "Intense yet fresh peat smoke with citrus and salinity.",
+  "d066": "Ripe pear and citrus with gentle sea breeze, soft peat smoke and caramel sweetness.",
+  "d067": "Rich vanilla and coconut with abundant citrus over a weighty peat smoke that lingers long.",
+  "d068": "Ripe fruit and dark chocolate with tropical mango, soft oak and subtle peat smoke.",
+  "d070": "Rich sherry and dark chocolate with prune and caramel woven into deep oak and lingering smoke.",
+  "d071": "Smooth vanilla and caramel with the sweetness of coconut and toffee in a lightly grainy grain whisky.",
+  "d072": "Intense peppery spice and salty sea breeze with sweet malt over a bonfire-like peat smoke.",
+  "d074": "Cherry and dark chocolate with cranberry and Turkish delight over subtle oaky spice.",
+  "d075": "Honey and peach with the sweetness of apricot and melon over soft vanilla and light oaky spice.",
+  "d076": "Red berries and plum with strawberry jam fruit, honey, and a touch of peppery spice.",
+  "d077": "Chocolate-coated raisins and ripe figs with sweet cherry, rich sherry, and oak spice.",
+  "d078": "Deep vanilla and toffee with ripe fruit, concentrated oak spice, and a warm finish.",
+  "d081": "Rich caramel and toffee with dark cherry, oak, and peppery spice in a robust profile.",
+  "d082": "Thick vanilla and caramel with nuts, oak tannins, and weighty pepper on the finish.",
+  "d083": "Vanilla and caramel balanced with ripe fruit and oak spice for deep, harmonious flavor.",
+  "d084": "Rich caramel and maple over a weighty base of oak and toasty nuts.",
+  "d085": "Dried fruit and vanilla with mint, toffee, and oak spice carrying an elegant finish.",
+  "d086": "Rich vanilla and caramel with orange peel, pepper, and oak running intense and bold.",
+  "d087": "Light-bodied honey and vanilla with subtle rye spice and a smooth, dry-pepper finish.",
+  "d088": "Vanilla and honey with rye spice and oak running clean into a dry finish.",
+  "d089": "Caramel and vanilla richly woven with ripe fruit and oak spice at cask strength.",
+  "d090": "Rich vanilla and caramel with toasty oak and warm spice carrying weighty flavor.",
+  "d091": "Light-bodied pear and apple with honey and subtle floral spice in a smooth profile.",
+  "d092": "Caramel and vanilla with ripe fruit, oak, and soft spice carrying the flavor through.",
+  "d093": "Rich caramel and vanilla with oak and warm spice running weighty at cask strength.",
+  "d094": "Vanilla and caramel with toffee and spice from toasted French oak woven deep.",
+  "d095": "Vanilla and caramel with subtle oak and light spice running smooth and easy.",
+  "d096": "Rye spice and pepper with caramel, oak, and mint woven into a vivid profile.",
+  "d097": "Vivid rye spice and pepper with mint, apricot, and oak running dry on the finish.",
+  "d098": "Rich rye spice and pepper with caramel and ripe fruit woven at cask strength.",
+  "d100": "Rye spice and pepper with caramel, citrus, and mint carrying smoothly through.",
+  "d101": "Rich vanilla and caramel with ripe fruit and oak spice woven weighty and full.",
+  "d102": "Honey and ripe fruit with the subtle scent of Mizunara oak and gentle spice.",
+  "d103": "Honey and orange with white chocolate and the subtle scent of Mizunara woven smoothly.",
+  "d104": "Ripe berries and dark chocolate with coffee and nuts over a subtle wisp of smoke.",
+  "d205": "Dried fruit and honey with vanilla and subtle oak spice in a smooth cognac.",
+  "d206": "Rich dried fruit and dark chocolate with leather and clove on a deep, oak-laden finish.",
+  "d207": "Old-bottling overripe dried fruit and honey with leather and aged oak in weighty flavor.",
+  "d209": "Ripe plum and apricot with violet and honey and oak hovering elegantly through the cognac.",
+  "d210": "Old-bottling dense dried fruit and honey with a deep finish of vanilla and oak.",
+  "d211": "Floral notes and nuts of Borderies cru with dried fruit on a smooth oak finish.",
+  "d212": "Ripe apple and pear with honey and subtle oak spice hovering through the Calvados.",
+  "d213": "Long-aged overripe baked apple and dried fruit with leather and spice in deep flavor.",
+  "d214": "Overripe pear and apple with honey and oak and subtle spice in a Domfrontais Calvados.",
+  "d215": "Fresh apple and pear with honey woven into smooth oak in a Calvados.",
+  "d216": "Dried plum and fig with toffee and oak and spice hovering through a deep Armagnac.",
+  "d217": "Long-aged dried fruit and toffee with leather and oak woven into weighty Armagnac.",
+  "d218": "Overripe plum and raisin with walnut and oak and a subtle spice finish in a Bas-Armagnac.",
+  "d219": "Long-aged dried fruit and toffee with leather and clove in a deep, complex Armagnac.",
+  "d220": "Vanilla and toffee with brown sugar and orange peel over smooth oak in a sweet rum.",
+  "d221": "Rich tropical fruit and banana with ester notes woven into oak and spice in a Jamaican rum.",
+  "d222": "Dense tropical esters and ripe fruit with deep oak and spice in a Jamaican rum.",
+  "d223": "Brown sugar and raisin with vanilla and caramel over subtle oak in a solera dark rum.",
+  "d224": "Fresh citrus and agave with pepper and herbs woven clean into a blanco tequila.",
+  "d234": "Raisin and dried fruit with chocolate and nuts woven into sherry oak in a Swedish single malt.",
+  "d235": "Vanilla and citrus with grainy sweetness and subtle oak hovering through a Nordic single malt.",
+  "d236": "Peat smoke and vanilla with citrus woven into oak spice in a Swedish single malt.",
+  "d237": "Tropical fruit and dense wine-cask sweetness with deep oak and spice at cask-strength single malt.",
+  "d238": "Vanilla and coconut with ripe tropical fruit and the sweetness of oak in a bourbon-cask single malt.",
+  "d239": "Vanilla and caramel with grainy sweetness and smooth oak hovering through a blended American whiskey.",
+  "d240": "Honey and herbs with spice woven into whisky-based sweetness in a Scotch liqueur.",
+  "d241": "Anise and fennel with the intense herbal scent of wormwood woven through the absinthe.",
+  "mnk76u8tnqcfw": "Sweet sherry and citrus with ginger spice over light smoke and smooth oak.",
+  "mnk796eog60n5": "Rich sherry and dried fruit with dark chocolate and orange peel over subtle oak spice.",
+  "mnk7cw0udsufe": "Sweet sherry and citrus with ripe berries and baked apple over subtle smoke and deep oak.",
+  "mnk852kqpdbaa": "Rich peat smoke and tropical fruit with barley sweetness woven into oak spice in a cask-strength Indian single malt.",
+  "mnk89s647o704": "Nutty fino sherry with dried fruit and malty sweetness woven into subtle oak.",
+  "mnk8d8t63ix37": "A Sauternes cask Breton single malt of honey and apricot with nectar-like sweetness over barley and oak spice.",
+  "mnk8jdptthmnq": "A smooth Taiwanese single malt where ripe fruit and vanilla meet the sweetness of sherry and wine casks.",
+  "mnk8w1cv39aqw": "A Korean blended malt of vanilla, ripe fruit, and grain sweetness laced with oak.",
+  "mnk8x2rzv3vo8": "A high-proof Korean blended malt weaving together rich fruit, spice, and deep oak.",
+  "mnk8zd781u8vj": "Abundant sherry and ripe fruit with ginger spice, sweet oak, and a smooth finish.",
+  "mnk92ennno6i0": "Smooth vanilla and toffee with light sherry and dried fruit over oak and peppery spice.",
+  "mnk99rnha06f3": "Ripe fruit and honey with rich sherry balanced by light spice and smooth oak.",
+  "mnk9cs7ido8ay": "Cinnamon and clove with baked apple and creamy vanilla over dark chocolate and red berries.",
+  "mnk9l9u09aa12": "Rich Oloroso sherry and dried fruit with prune and dark chocolate over deep oak spice.",
+  "mnk9m9rz57p3r": "Lavish sherry and fig with brown sugar and dark chocolate over a deep, mysterious oak finish.",
+  "mnkackg74j1wn": "Rich red fruit and blackcurrant with dark berries over Bordeaux wine cask tannins and oak spice.",
+  "mnkafybgzk6uv": "Coconut and vanilla with green apple and nutmeg over the soft sweetness of cream and honeycomb.",
+  "mnkahnwtam0sj": "Rich PX sherry and raisin with fig and dark chocolate over a sticky sweetness and deep oak.",
+  "mnkajayya945q": "Honey and apricot with golden raisin sweetness over smooth vanilla and light oak spice.",
+  "mnkampltmq6we": "Ripe red berries and plum with Lagrein wine cask fruit over subtle tannins and oak spice.",
+  "mnkb2fpzp8cli": "Ripe apple and toffee with light sherry and dried fruit over smooth oak and nuts.",
+  "mnkb3tue6w9a4": "Rich sherry and dried fruit with deep toffee over dark chocolate and a lingering oak finish.",
+  "mnkbge4zutbmu": "Light apple and pear with hazelnut and vanilla over a clean, smooth malt sweetness.",
+  "mnkbkne3134zh": "Tropical pineapple and guava with honeyed grain and vanilla over soft citrus and sherry.",
+  "mnkbl87xm6ona": "Rich sherry and dried fruit with orange marmalade and dark chocolate over deep oak spice.",
+  "mnkbndvo0cgm4": "Fragrant floral peat and dark chocolate with nutmeg and dried fruit over sweet sherry and old oak.",
+  "mnkbrcsk6v2xm": "Heavy peat smoke and barbecue with sweet sherry and dark chocolate over a salty mineral edge.",
+  "mnkbud25pgtxa": "The sweetness of ripe fruit and sherry over gentle wood spice and a whisper of peat smoke.",
+  "mnkbv0l3dt508": "Smoky caramel and date with citrus and dry sherry over dark chocolate and peat smoke.",
+  "mnkbx1z533o1f": "Rich Oloroso sherry and dried fruit with dark chocolate over fragrant peat smoke and oak.",
+  "mnkbyeh3czduy": "Oily peat smoke and sea breeze with citrus and vanilla over salty minerals and peppery spice.",
+  "mnkc0icz869s9": "Baked apple and apricot with smoky toffee over light peat and the sweet fruit of Marsala.",
+  "mnkc3i4bedw4l": "Rich PX sherry and raisin with dark chocolate and coffee over heavy peat smoke and oak.",
+  "mnkc6aoopgba7": "Vanilla and coconut with smooth caramel balanced by light peat smoke and citrus.",
+  "mnkc9q0peg62t": "Soft peat and leather from long maturation with ripe fruit and wax over a deep oak finish.",
+  "mnkcdnpoqo71a": "Vanilla and citrus with green fruit over fragrant coastal peat smoke and smooth oak.",
+  "mnke2txwxlum7": "A cognac of ripe fruit and honey with vanilla over gentle oak spice.",
+  "mnke4zu7leeei": "A deep cognac with the rich dried fruit, leather, and weighty oak typical of Grande Champagne.",
+  "mnke6tb5qgach": "A cognac of the floral aromas, nuts, and dried fruit distinctive to the Borderies cru over smooth oak.",
+  "mnke9qxq7ydrn": "A Bas Armagnac of long vintage maturation, complex with dried plum and toffee, leather and oak.",
+  "mnkebaon0p3uu": "A deep Armagnac of vintage maturation, rich with mellow dried fruit and toffee, leather and oak spice.",
+  "mnkegbzolwyxd": "A Calvados where roasted apple and dried fruit meet the barley sweetness and oak spice of a Chichibu cask.",
+  "mnkek5sn9c5mj": "A deep, elegant Bas Armagnac of long vintage maturation with dried fruit and toffee, leather and clove.",
+  "mnn1hc0awqzax": "Fresh coastal peat and pine tar with sea salt and citrus over salty minerals and smoke.",
+  "mnn1kdbdhx4bj": "Sea-breeze peat and pine tar with lime and seaweed over smooth vanilla and smoke.",
+  "mnn2524lpn130": "A cask strength where rich rye spice and pepper meet caramel and oak in a weighty pour.",
+  "mnn2asmkucdab": "Crisp rye spice and pepper with vanilla and caramel carried by a weighty thread of oak.",
+  "mnn2cjjf6oe7i": "Rye spice and pepper with mint and vanilla elegantly woven through oak.",
+  "mnn2i00ubfwm3": "A batch proof densely packed with rich dried fruit, vanilla, and weighty oak spice.",
+  "mnn2nsxgjcr8m": "Deep sherry and dried fruit from long maturation with honey and dark chocolate over mellow oak spice.",
+  "mnoi9ezi3svqw": "A fruity dram where ripe fruit and honey meet vanilla and a hint of oak spice.",
+  "mo2tfftrxcs6n": "Rich sherry and dried fruit with brown sugar and dark chocolate over concentrated oak spice and a weighty finish.",
+  "mp6smqk5h4sch": "The sweetness of honey and golden dried fruit with light peat smoke and the flavor of a Monbazillac wine cask.",
+  "mp6sqq34aon5x": "Ripe apricot and honey with the sweet fruit of a Jurancon wine cask over light peat smoke.",
+  "mp6ssvc2ervhe": "Fragrant floral peat and rich sherry with dried fruit and dark chocolate over intense oak spice.",
+  "mpgomnqmulwxk": "Abundant sherry and dried fruit with brown sugar and toffee over deep oak spice and a weighty finish.",
+  "mpgoo40kclgpg": "A bright, ferment-driven fruitiness and malty sweetness carried by smooth oak.",
+  "mpgopevl2wg0f": "Crisp ferment-driven fruit and grain sweetness woven with nuances of Mizunara and sherry.",
+  "mpv4rnt49zbg3": "Rich sherry and nuts with dried fruit over subtle coastal smoke and smooth oak.",
+  "mpv4ttp4umjfa": "A barrel strength of rich vanilla and caramel with cinnamon and oak over a warm, buttery flow.",
+  "mpv4w98k6hgwb": "Cherry and roasted apple with brown sugar and vanilla over clove and oak spice.",
+};
+
+function noteText(item) {
+  if (item.category === 'cocktail' || item.category === 'signature') {
+    return recipeLine(item);
+  }
+  return lang === 'en' ? (item.notesEn || NOTES_EN[item.id] || '') : (item.notes || '');
+}
+
 // ===== Firebase 실시간 동기화 =====
 (function initFirebase() {
   if (typeof firebase === 'undefined') return; // SDK 로드 실패/오프라인 → localStorage로 동작
@@ -2237,6 +2496,23 @@ if (items.length === 0) {
         if (typeof renderMenu === 'function') renderMenu();
         if (typeof renderAdminList === 'function') renderAdminList();
       } catch (e) {}
+    });
+
+    // 입장 안내문(intro) 동기화
+    var introRef = firebase.database().ref('intro');
+    window._introRef = introRef;
+    introRef.once('value').then(function(snap) {
+      if (snap.val() == null && typeof loadIntroData === 'function') {
+        introRef.set(loadIntroData());
+      }
+    }).catch(function() {});
+    introRef.on('value', function(snap) {
+      var d = snap.val();
+      if (!d) return;
+      window._introApplying = true;
+      if (typeof saveIntroData === 'function') saveIntroData(d);
+      window._introApplying = false;
+      try { if (typeof renderIntro === 'function') renderIntro(); } catch (e) {}
     });
   } catch (e) {}
 })();
@@ -2396,21 +2672,23 @@ function renderMenu() {
   menuGrid.style.display = 'grid';
 
   menuGrid.innerHTML = finalFiltered.map(item => `
-    <div class="menu-card${item.hidden ? ' soldout' : ''}" onclick="openDetailModal('${item.id}')">
+    <div class="menu-card${item.hidden ? ' soldout' : ''}${item.category === 'signature' && item.image ? ' has-thumb' : ''}" onclick="openDetailModal('${item.id}')">
       ${item.hidden ? '<div class="soldout-badge">SOLD OUT</div>' : ''}
       <div class="card-body">
         <div class="card-header">
           <div>
-            <div class="card-name">${item.starred ? '<span class="card-star">\u2605 </span>' : ''}${escapeHtml(item.name)}</div>
-            ${item.nameEn ? `<div class="card-name-en">${escapeHtml(item.nameEn)}</div>` : ''}
+            <div class="card-name">${item.starred ? '<span class="card-star">\u2605 </span>' : ''}${escapeHtml(displayName(item))}</div>
+            ${lang !== 'en' && item.nameEn ? `<div class="card-name-en">${escapeHtml(item.nameEn)}</div>` : ''}
           </div>
         </div>
         ${item.region ? `<div class="card-region">${escapeHtml(item.region)}</div>` : ''}
+        ${(item.category === 'cocktail' || item.category === 'signature') && recipeLine(item) ? `<div class="card-recipe">${escapeHtml(recipeLine(item))}</div>` : ''}
         <div class="card-prices">
-          <div class="card-price">${formatPrice(item.price)}<span> 원</span></div>
-          ${item.bottlePrice ? `<div class="card-bottle-price">Bottle ${formatPrice(item.bottlePrice)}<span> 원</span></div>` : ''}
+          <div class="card-price">${formatPrice(item.price)}<span> ${lang === 'en' ? 'KRW' : '원'}</span></div>
+          ${item.bottlePrice ? `<div class="card-bottle-price">Bottle ${formatPrice(item.bottlePrice)}<span> ${lang === 'en' ? 'KRW' : '원'}</span></div>` : ''}
         </div>
       </div>
+      ${item.category === 'signature' && item.image ? `<img class="card-thumb" src="${item.image}" alt="">` : ''}
     </div>
   `).join('');
 }
@@ -2614,6 +2892,16 @@ function updateFormVisibility(category, whiskeySub) {
 
   document.getElementById('form-flavor-group').style.display = (category === 'whiskey') ? '' : 'none';
 
+  const notesLabel = document.querySelector('label[for="form-notes"]');
+  const notesField = document.getElementById('form-notes');
+  if (category === 'cocktail' || category === 'signature') {
+    if (notesLabel) notesLabel.textContent = '레시피 (영문)';
+    if (notesField) notesField.placeholder = '예: Gin, Lime, Sugar';
+  } else {
+    if (notesLabel) notesLabel.textContent = '테이스팅 노트';
+    if (notesField) notesField.placeholder = '예: 셰리 오크의 풍부한 과일향, 바닐라, 시나몬';
+  }
+
   // Show region dropdown only for scotch
   updateRegionOptions(whiskeySub, '');
 }
@@ -2780,10 +3068,14 @@ function buildFlavorSliders(flavor) {
 }
 
 const FLAVOR_ENDS = [['없음','강함'],['가벼움','묵직함'],['드라이','달콤'],['적음','풍부'],['약함','강함'],['연함','진함']];
+const FLAVOR_AXES_EN = ['Smoke','Body','Sweet','Fruit','Spice','Oak'];
+const FLAVOR_ENDS_EN = [['None','Strong'],['Light','Full'],['Dry','Sweet'],['Low','Rich'],['Mild','Strong'],['Subtle','Deep']];
 
 function renderFlavorRadar(flavor) {
+  const AX = lang === 'en' ? FLAVOR_AXES_EN : FLAVOR_AXES;
+  const ENDS = lang === 'en' ? FLAVOR_ENDS_EN : FLAVOR_ENDS;
   let h = '<div style="padding:4px 2px;">';
-  for (let i = 0; i < FLAVOR_AXES.length; i++) {
+  for (let i = 0; i < AX.length; i++) {
     const v = flavor[i] || 0;
     const pct = (v / 5) * 100;
     let ticks = '';
@@ -2791,14 +3083,14 @@ function renderFlavorRadar(flavor) {
       ticks += '<div style="position:absolute;left:' + (t * 20) + '%;top:50%;transform:translate(-50%,-50%);width:1px;height:8px;background:var(--border-light);"></div>';
     }
     h += '<div style="margin-bottom:13px;">'
-      + '<div style="font-size:12px;color:var(--text-primary);margin-bottom:7px;">' + FLAVOR_AXES[i] + '</div>'
+      + '<div style="font-size:12px;color:var(--text-primary);margin-bottom:7px;">' + AX[i] + '</div>'
       + '<div style="position:relative;height:14px;margin:0 6px;">'
       + '<div style="position:absolute;left:0;right:0;top:50%;transform:translateY(-50%);height:2px;background:var(--border-light);"></div>'
       + ticks
       + '<div style="position:absolute;left:' + pct + '%;top:50%;transform:translate(-50%,-50%);width:12px;height:12px;border-radius:50%;background:var(--gold);box-shadow:0 0 0 2px var(--bg-card);"></div>'
       + '</div>'
       + '<div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text-muted);margin:3px 4px 0;">'
-      + '<span>' + FLAVOR_ENDS[i][0] + '</span><span>' + FLAVOR_ENDS[i][1] + '</span>'
+      + '<span>' + ENDS[i][0] + '</span><span>' + ENDS[i][1] + '</span>'
       + '</div>'
       + '</div>';
   }
@@ -2844,10 +3136,10 @@ window.openDetailModal = function(id) {
     imgWrap.appendChild(so);
   }
 
-  document.getElementById('detail-name').textContent = (item.starred ? '★ ' : '') + item.name;
+  document.getElementById('detail-name').textContent = (item.starred ? '★ ' : '') + displayName(item);
   const enEl = document.getElementById('detail-name-en');
-  enEl.textContent = item.nameEn || '';
-  enEl.style.display = item.nameEn ? '' : 'none';
+  enEl.textContent = (lang !== 'en' && item.nameEn) ? item.nameEn : '';
+  enEl.style.display = (lang !== 'en' && item.nameEn) ? '' : 'none';
 
   const abvEl = document.getElementById('detail-abv');
   if (item.abv) { abvEl.textContent = item.abv + '%'; abvEl.style.display = ''; }
@@ -2869,8 +3161,9 @@ window.openDetailModal = function(id) {
 
   const notesSection = document.getElementById('detail-notes-section');
   const notesEl = document.getElementById('detail-notes');
-  if (item.notes && item.notes.trim()) {
-    notesEl.textContent = item.notes;
+  const nt = noteText(item);
+  if (nt && nt.trim()) {
+    notesEl.textContent = nt;
     notesSection.style.display = '';
   } else {
     notesSection.style.display = 'none';
@@ -2889,13 +3182,13 @@ window.openDetailModal = function(id) {
   if (item.price) {
     const row = document.createElement('div');
     row.className = 'detail-price-row';
-    row.innerHTML = `<div class="detail-price-label">Glass</div><div class="detail-price-value">${formatPrice(item.price)}<span>원</span></div>`;
+    row.innerHTML = `<div class="detail-price-label">Glass</div><div class="detail-price-value">${formatPrice(item.price)}<span>${lang === 'en' ? ' KRW' : '원'}</span></div>`;
     pricesEl.appendChild(row);
   }
   if (item.bottlePrice) {
     const row = document.createElement('div');
     row.className = 'detail-price-row';
-    row.innerHTML = `<div class="detail-price-label">Bottle</div><div class="detail-price-value">${formatPrice(item.bottlePrice)}<span>원</span></div>`;
+    row.innerHTML = `<div class="detail-price-label">Bottle</div><div class="detail-price-value">${formatPrice(item.bottlePrice)}<span>${lang === 'en' ? ' KRW' : '원'}</span></div>`;
     pricesEl.appendChild(row);
   }
 
@@ -3201,6 +3494,26 @@ const INTRO_DEFAULTS = {
   footer: 'WELCOME TO ITDAEULYEON'
 };
 
+const INTRO_EN = {
+  eyebrow: 'Whiskey & Spirits',
+  name: '잇닿을연',
+  tagline: 'It · Da · Eul · Yeon',
+  poetry: 'A glass of aroma that brings us together,\nthe quiet lingering of tonight.',
+  rulesTitle: 'House Rules',
+  rulesSub: 'PLEASE NOTE',
+  rules: [
+    'Guests must be 19 or older to enter.',
+    'A smoking lounge is available upstairs.',
+    'No outside food or drinks, please.',
+    'Kindly avoid strong perfume so everyone can enjoy the whisky aromas.',
+    'Please be considerate of other guests when taking photos.',
+    'Keep your voice low and enjoy your whisky.'
+  ],
+  enterEn: 'Enter',
+  enterKr: '',
+  footer: 'WELCOME TO ITDAEULYEON'
+};
+
 function loadIntroData() {
   const defaults = JSON.parse(JSON.stringify(INTRO_DEFAULTS));
   if (!storageAvailable) return defaults;
@@ -3214,8 +3527,12 @@ function loadIntroData() {
 }
 
 function saveIntroData(data) {
-  if (!storageAvailable) return;
-  try { localStorage.setItem(INTRO_STORAGE_KEY, JSON.stringify(data)); } catch {}
+  if (storageAvailable) {
+    try { localStorage.setItem(INTRO_STORAGE_KEY, JSON.stringify(data)); } catch {}
+  }
+  if (window._introRef && !window._introApplying) {
+    try { window._introRef.set(data); } catch (e) {}
+  }
 }
 
 function setSlot(id, text, hideIfEmpty) {
@@ -3227,7 +3544,7 @@ function setSlot(id, text, hideIfEmpty) {
 }
 
 function renderIntro() {
-  const d = loadIntroData();
+  const d = (lang === 'en') ? INTRO_EN : loadIntroData();
   setSlot('intro-eyebrow-slot', d.eyebrow, true);
   setSlot('intro-name-slot', d.name);
   setSlot('intro-tagline-slot', d.tagline, true);
@@ -3268,6 +3585,34 @@ document.getElementById('intro-enter-btn').addEventListener('click', () => {
   intro.classList.add('leaving');
   setTimeout(() => { intro.style.display = 'none'; }, 550);
 });
+
+function updateLangToggles() {
+  document.querySelectorAll('#intro-lang button, #menu-lang button').forEach(b => {
+    b.classList.toggle('active', b.getAttribute('data-lang') === lang);
+  });
+}
+function applyUiLang() {
+  const si = document.getElementById('search-input');
+  if (si) si.placeholder = lang === 'en' ? 'Search...' : '검색...';
+  const labels = lang === 'en'
+    ? { 'default': 'Default', 'name-asc': 'Name A→Z', 'name-desc': 'Name Z→A', 'price-asc': 'Price ↑', 'price-desc': 'Price ↓', 'name-en-asc': 'English A→Z' }
+    : { 'default': '기본 정렬', 'name-asc': '이름 ㄱ→ㅎ', 'name-desc': '이름 ㅎ→ㄱ', 'price-asc': '가격 낮은순', 'price-desc': '가격 높은순', 'name-en-asc': '영문 A→Z' };
+  document.querySelectorAll('#sort-select option').forEach(o => { if (labels[o.value]) o.textContent = labels[o.value]; });
+}
+function setLang(l) {
+  lang = l;
+  if (storageAvailable) { try { localStorage.setItem('whiskey_lang', l); } catch (e) {} }
+  updateLangToggles();
+  applyUiLang();
+  renderIntro();
+  try { renderMenu(); } catch (e) {}
+}
+document.querySelectorAll('#intro-lang button, #menu-lang button').forEach(b => {
+  b.addEventListener('click', () => setLang(b.getAttribute('data-lang')));
+});
+updateLangToggles();
+applyUiLang();
+renderIntro();
 
 document.getElementById('menu-back-btn').addEventListener('click', () => {
   const intro = document.getElementById('intro-view');
