@@ -2814,6 +2814,10 @@ const pinModal = document.getElementById('pin-modal');
 const pinInput = document.getElementById('pin-input');
 const pinError = document.getElementById('pin-error');
 
+if (new URLSearchParams(location.search).has('guest')) {
+  var _atg = document.getElementById('admin-toggle');
+  if (_atg) _atg.style.display = 'none';
+}
 document.getElementById('admin-toggle').onclick = () => {
   pinInput.value = '';
   pinError.style.display = 'none';
