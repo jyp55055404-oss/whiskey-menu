@@ -1635,6 +1635,13 @@ body {
           </div>
         </div>
 
+        <div class="form-group" style="margin-top:-4px;">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+            <input type="checkbox" id="form-bottle-soldout" style="width:18px;height:18px;margin:0;">
+            <span>바틀 품절 (잔은 판매, 병만 없을 때 체크 → BOTTLE 탭에 SOLD OUT 표시)</span>
+          </label>
+        </div>
+
         <div class="form-row">
           <div class="form-group">
             <label for="form-abv">도수 (%)</label>
@@ -1882,6 +1889,7 @@ function isSpirit(cat) { return cat === 'whiskey'; }     // 도수·노트·맛 
 const VIRTUAL_TABS = { bottle: i => Number(i && i.bottlePrice) > 0 };
 function isVirtualTab(cat) { return !!VIRTUAL_TABS[cat]; }
 function hasGlass(i) { return Number(i && i.price) > 0; }
+function bottleSoldOut(i) { return !!(i && i.bottleSoldOut); }   // 바틀만 품절 (잔은 판매)
 // 바틀 할인: 정가(bottlePrice)와 할인율(bottleDiscount %)만 저장하고 할인가는 화면에서 계산 (천 원 단위 반올림)
 function bottleDeal(i) {
   const orig = Number(i && i.bottlePrice) || 0;
@@ -2721,8 +2729,8 @@ function renderMenu() {
 
   const unit = lang === 'en' ? 'KRW' : '원';
   menuGrid.innerHTML = finalFiltered.map(item => `
-    <div class="menu-card${item.hidden ? ' soldout' : ''}${item.category === 'signature' && itemHasImage(item) ? ' has-thumb' : ''}" onclick="openDetailModal('${item.id}')">
-      ${item.hidden ? '<div class="soldout-badge">SOLD OUT</div>' : ''}
+    <div class="menu-card${(item.hidden || (activeCategory === 'bottle' && bottleSoldOut(item))) ? ' soldout' : ''}${item.category === 'signature' && itemHasImage(item) ? ' has-thumb' : ''}" onclick="openDetailModal('${item.id}')">
+      ${(item.hidden || (activeCategory === 'bottle' && bottleSoldOut(item))) ? '<div class="soldout-badge">SOLD OUT</div>' : ''}
       <div class="card-body">
         <div class="card-header">
           <div>
@@ -2735,7 +2743,7 @@ function renderMenu() {
         <div class="card-prices">
           ${activeCategory === 'bottle' ? `<div class="card-price">Bottle ${bottlePriceHtml(item, unit)}</div>` : `${hasGlass(item) ? `<div class="card-price">${formatPrice(item.price)}<span> ${unit}</span></div>` : ''}
           ${item.halfPrice ? `<div class="card-half-price">Half ${formatPrice(item.halfPrice)}<span> ${unit}</span></div>` : ''}
-          ${item.bottlePrice ? `<div class="card-bottle-price">Bottle ${bottlePriceHtml(item, unit)}</div>` : ''}`}
+          ${item.bottlePrice && !bottleSoldOut(item) ? `<div class="card-bottle-price">Bottle ${bottlePriceHtml(item, unit)}</div>` : ''}`}
         </div>
       </div>
       ${item.category === 'signature' && itemHasImage(item) ? `<img class="card-thumb" data-img-id="${escapeHtml(item.id)}" data-img-ver="${item.imageVer || ''}"${imageOf(item) ? ` src="${escapeHtml(imageOf(item))}"` : ''} alt="">` : ''}
@@ -2758,7 +2766,7 @@ function adminPriceLine(item) {
   if (item.halfPrice) parts.push(small(`H ${formatPrice(item.halfPrice)}`));
   if (item.bottlePrice) {
     const d = bottleDeal(item);
-    const txt = `B ${formatPrice(d.final)}${d.pct ? ` (${d.pct}%↓)` : ''}`;
+    const txt = `B ${formatPrice(d.final)}${d.pct ? ` (${d.pct}%↓)` : ''}${bottleSoldOut(item) ? ' 품절' : ''}`;
     parts.push(hasGlass(item) ? small(txt) : `${txt}원`);
   }
   return parts.join(' <span style="color:var(--text-muted);font-weight:400;font-size:11px;">/</span> ') || '-';
@@ -3014,6 +3022,7 @@ function openModal(item = null) {
   document.getElementById('form-half-price').value = item && item.halfPrice ? item.halfPrice : '';
   document.getElementById('form-bottle-price').value = item && item.bottlePrice ? item.bottlePrice : '';
   document.getElementById('form-bottle-discount').value = item && item.bottleDiscount ? item.bottleDiscount : '';
+  document.getElementById('form-bottle-soldout').checked = !!(item && item.bottleSoldOut);
   document.getElementById('form-abv').value = item ? (item.abv || '') : '';
   document.getElementById('form-notes').value = item ? (item.notes || '') : '';
   document.getElementById('form-order').value = item ? (item.order || 0) : 0;
@@ -3128,6 +3137,7 @@ form.onsubmit = (e) => {
     halfPrice: Number(document.getElementById('form-half-price').value) || null,
     bottlePrice: Number(document.getElementById('form-bottle-price').value) || null,
     bottleDiscount: null,
+    bottleSoldOut: null,
     abv: Number(document.getElementById('form-abv').value) || null,
     notes: document.getElementById('form-notes').value.trim() || null,
     order: Number(document.getElementById('form-order').value) || 0,
@@ -3136,6 +3146,7 @@ form.onsubmit = (e) => {
   if (!values.price && !values.bottlePrice) { alert('한잔 가격 또는 바틀 가격 중 하나는 입력해주세요.'); return; }
   const disc = Math.min(99, Math.max(0, Math.round(Number(document.getElementById('form-bottle-discount').value) || 0)));
   values.bottleDiscount = (values.bottlePrice && disc) ? disc : null;
+  values.bottleSoldOut = (values.bottlePrice && document.getElementById('form-bottle-soldout').checked) ? true : null;
   const newId = id || generateId();
   const img = buildImageChange(newId, formImageState, document.getElementById('form-image').value.trim(), orig);
   Object.assign(values, img.values);
@@ -3312,7 +3323,7 @@ window.openDetailModal = function(id) {
   if (item.bottlePrice) {
     const row = document.createElement('div');
     row.className = 'detail-price-row';
-    row.innerHTML = `<div class="detail-price-label">Bottle</div><div class="detail-price-value">${bottlePriceHtml(item, lang === 'en' ? 'KRW' : '원')}</div>`;
+    row.innerHTML = `<div class="detail-price-label">Bottle</div><div class="detail-price-value">${bottleSoldOut(item) ? '<span style="font-size:14px;color:var(--text-muted);letter-spacing:2px;">SOLD OUT</span>' : bottlePriceHtml(item, lang === 'en' ? 'KRW' : '원')}</div>`;
     pricesEl.appendChild(row);
   }
 
