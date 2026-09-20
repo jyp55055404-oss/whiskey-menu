@@ -570,6 +570,12 @@ body {
   opacity: 0.4;
 }
 
+/* 바틀만 품절인 메뉴: BOTTLE 탭에서는 품절처럼 흐리게, 다른 탭에서는 배지로 표시 */
+.badge-bottle-so {
+  background: rgba(232, 160, 160, 0.15);
+  color: #e8a0a0;
+}
+
 .menu-card.soldout {
   position: relative;
   opacity: 0.4;
@@ -2845,13 +2851,14 @@ function renderAdminList() {
   }
 
   adminList.innerHTML = sorted.map(item => `
-    <div class="admin-item${item.hidden ? ' soldout-item' : ''}">
+    <div class="admin-item${(item.hidden || (adminCategory === 'bottle' && bottleSoldOut(item))) ? ' soldout-item' : ''}">
       <div class="admin-item-info" onclick="openQuickEditModal('${item.id}')" title="사진/도수/노트 빠른 편집">
         <div class="admin-item-name">${item.starred ? '<span style="color:var(--gold);">\u2605 </span>' : ''}${escapeHtml(item.name)}</div>
         <div class="admin-item-price">${adminPriceLine(item)}</div>
         <div class="admin-item-detail">${item.region ? escapeHtml(item.region) : ''}${item.abv ? ' ' + item.abv + '%' : ''}</div>
         <div class="admin-badges">
           ${isPendingItem(item.id) ? '<span class="badge badge-pending">저장 중…</span>' : ''}
+          ${bottleSoldOut(item) ? '<span class="badge badge-bottle-so">바틀 품절</span>' : ''}
           ${itemHasImage(item) ? '<span class="badge badge-img-yes">\uD83D\uDCF7 \uC0AC\uC9C4</span>' : '<span class="badge badge-img-no">\uC0AC\uC9C4 \uC5C6\uC74C</span>'}
           ${isSpirit(item.category) && !item.abv ? '<span class="badge badge-missing">\uB3C4\uC218 \uBBF8\uC785\uB825</span>' : ''}
           ${isSpirit(item.category) && !(item.notes && item.notes.trim()) ? '<span class="badge badge-missing">\uB178\uD2B8 \uBBF8\uC785\uB825</span>' : ''}
