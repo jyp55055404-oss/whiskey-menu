@@ -315,6 +315,29 @@ body {
   color: var(--text-muted);
 }
 
+/* 바틀 할인: 정가 취소선 + 할인 배지 */
+.price-orig {
+  color: var(--text-muted);
+  text-decoration: line-through;
+  font-size: 0.7em;
+  font-weight: 400;
+  margin-right: 6px;
+}
+.deal-badge {
+  display: inline-block;
+  font-family: -apple-system, 'Noto Sans KR', sans-serif;
+  font-size: 11px;
+  font-weight: 500;
+  color: #e8a0a0;
+  border: 1px solid rgba(232, 160, 160, 0.55);
+  border-radius: 3px;
+  padding: 1px 7px;
+  margin-left: 6px;
+  letter-spacing: 0.5px;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
 /* Star Badge */
 .card-star {
   color: var(--gold);
@@ -1562,7 +1585,6 @@ body {
             <select id="form-category" required>
               <option value="">선택</option>
               <option value="whiskey">WHISKEY</option>
-              <option value="bottle">BOTTLE</option>
               <option value="cocktail">COCKTAIL</option>
               <option value="signature">SIGNATURE</option>
               <option value="champagne">CHAMPAGNE</option>
@@ -1593,8 +1615,8 @@ body {
 
         <div class="form-row">
           <div class="form-group">
-            <label for="form-price">한잔 가격 (원) *</label>
-            <input type="number" id="form-price" required placeholder="예: 25000">
+            <label for="form-price">한잔 가격 (원)</label>
+            <input type="number" id="form-price" placeholder="예: 25000 (바틀만 팔면 비워두기)">
           </div>
           <div class="form-group" id="form-half-price-group">
             <label for="form-half-price">하프 가격 (원)</label>
@@ -1605,8 +1627,15 @@ body {
         <div class="form-row">
           <div class="form-group" id="form-bottle-price-group">
             <label for="form-bottle-price">바틀 가격 (원)</label>
-            <input type="number" id="form-bottle-price" placeholder="없으면 비워두기">
+            <input type="number" id="form-bottle-price" placeholder="적으면 BOTTLE 탭에 자동 표시">
           </div>
+          <div class="form-group">
+            <label for="form-bottle-discount">바틀 할인 (%)</label>
+            <input type="number" id="form-bottle-discount" min="0" max="99" placeholder="예: 10 (없으면 비워두기)">
+          </div>
+        </div>
+
+        <div class="form-row">
           <div class="form-group">
             <label for="form-abv">도수 (%)</label>
             <input type="number" id="form-abv" step="0.1" placeholder="예: 43">
@@ -1848,8 +1877,31 @@ const SUBS = {
 const DEFAULT_SUB = { signature: 'yeons', food: 'main' };
 const SUB_LABEL = { whiskey: '위스키 분류', cocktail: '칵테일 분류', signature: '시그니처 분류', food: '푸드 분류' };
 function effectiveSub(item) { return (item && (item.subcategory || DEFAULT_SUB[item.category])) || null; }
-function isSpirit(cat) { return cat === 'whiskey' || cat === 'bottle'; }     // 도수·노트·맛 그래프 대상
-function isBottleOnly(cat) { return cat === 'bottle'; }                        // 바틀 가격 하나만 표시
+function isSpirit(cat) { return cat === 'whiskey'; }     // 도수·노트·맛 그래프 대상
+// BOTTLE 탭은 따로 등록하는 카테고리가 아니라 "바틀 가격이 적힌 메뉴"가 자동으로 모이는 가상 탭
+const VIRTUAL_TABS = { bottle: i => Number(i && i.bottlePrice) > 0 };
+function isVirtualTab(cat) { return !!VIRTUAL_TABS[cat]; }
+function hasGlass(i) { return Number(i && i.price) > 0; }
+// 바틀 할인: 정가(bottlePrice)와 할인율(bottleDiscount %)만 저장하고 할인가는 화면에서 계산 (천 원 단위 반올림)
+function bottleDeal(i) {
+  const orig = Number(i && i.bottlePrice) || 0;
+  const pct = Math.min(99, Math.max(0, Math.round(Number(i && i.bottleDiscount) || 0)));
+  if (!orig || !pct) return { orig, pct: 0, final: orig, off: 0 };
+  const final = Math.round(orig * (100 - pct) / 100 / 1000) * 1000;
+  return { orig, pct, final, off: orig - final };
+}
+// "Bottle" 가격 표시용 HTML (할인 있으면 취소선 정가 + 할인가 + 배지)
+function bottlePriceHtml(i, unitText) {
+  const d = bottleDeal(i);
+  if (!d.pct) return `${formatPrice(d.orig)}<span> ${unitText}</span>`;
+  const badge = lang === 'en' ? `${d.pct}% OFF · ${formatPrice(d.off)} KRW off` : `${d.pct}% OFF · ${formatPrice(d.off)}원 할인`;
+  return `<s class="price-orig">${formatPrice(d.orig)}</s>${formatPrice(d.final)}<span> ${unitText}</span><span class="deal-badge">${badge}</span>`;
+}
+// 어느 탭에 속하는지: 가상 탭이면 그 규칙, 아니면 카테고리 + 잔 가격 있음 (바틀 전용은 원래 탭에서 제외)
+function inTab(i, tab) {
+  if (isVirtualTab(tab)) return VIRTUAL_TABS[tab](i);
+  return i.category === tab && hasGlass(i);
+}
 
 let storageAvailable = true;
 try {
@@ -2639,7 +2691,7 @@ function renderRegions() {
 function renderMenu() {
   const filtered = viewItems()
     .filter(i => matchSearch(i, searchQuery))
-    .filter(i => i.category === activeCategory)
+    .filter(i => inTab(i, activeCategory))
     .filter(i => {
       if (!SUBS[activeCategory] || activeSub === 'all') return true;
       return effectiveSub(i) === activeSub;
@@ -2653,8 +2705,9 @@ function renderMenu() {
   // starred first, then sort
   const starred = filtered.filter(i => i.starred);
   const rest = filtered.filter(i => !i.starred);
-  applySorting(starred, sortMode);
-  applySorting(rest, sortMode);
+  const priceOf = activeCategory === 'bottle' ? (i => bottleDeal(i).final) : (i => i.price || 0);
+  applySorting(starred, sortMode, priceOf);
+  applySorting(rest, sortMode, priceOf);
   const finalFiltered = [...starred, ...rest];
 
   if (finalFiltered.length === 0 && viewItems().length === 0) {
@@ -2680,9 +2733,9 @@ function renderMenu() {
         ${item.region ? `<div class="card-region">${escapeHtml(item.region)}</div>` : ''}
         ${(item.category === 'cocktail' || item.category === 'signature') && recipeLine(item) ? `<div class="card-recipe">${escapeHtml(recipeLine(item))}</div>` : ''}
         <div class="card-prices">
-          ${isBottleOnly(item.category) ? `<div class="card-price">Bottle ${formatPrice(item.price)}<span> ${unit}</span></div>` : `<div class="card-price">${formatPrice(item.price)}<span> ${unit}</span></div>
+          ${activeCategory === 'bottle' ? `<div class="card-price">Bottle ${bottlePriceHtml(item, unit)}</div>` : `${hasGlass(item) ? `<div class="card-price">${formatPrice(item.price)}<span> ${unit}</span></div>` : ''}
           ${item.halfPrice ? `<div class="card-half-price">Half ${formatPrice(item.halfPrice)}<span> ${unit}</span></div>` : ''}
-          ${item.bottlePrice ? `<div class="card-bottle-price">Bottle ${formatPrice(item.bottlePrice)}<span> ${unit}</span></div>` : ''}`}
+          ${item.bottlePrice ? `<div class="card-bottle-price">Bottle ${bottlePriceHtml(item, unit)}</div>` : ''}`}
         </div>
       </div>
       ${item.category === 'signature' && itemHasImage(item) ? `<img class="card-thumb" data-img-id="${escapeHtml(item.id)}" data-img-ver="${item.imageVer || ''}"${imageOf(item) ? ` src="${escapeHtml(imageOf(item))}"` : ''} alt="">` : ''}
@@ -2697,6 +2750,20 @@ function renderMenu() {
 }
 
 // ===== Render: Admin List =====
+// 관리자 목록 가격 줄: "20,000원 / H 12,000 / B 360,000 (10%↓)". 잔 가격이 없으면 "B 360,000원"부터.
+function adminPriceLine(item) {
+  const parts = [];
+  if (hasGlass(item)) parts.push(`${formatPrice(item.price)}원`);
+  const small = t => `<span style="color:var(--text-muted);font-weight:400;font-size:11px;">${t}</span>`;
+  if (item.halfPrice) parts.push(small(`H ${formatPrice(item.halfPrice)}`));
+  if (item.bottlePrice) {
+    const d = bottleDeal(item);
+    const txt = `B ${formatPrice(d.final)}${d.pct ? ` (${d.pct}%↓)` : ''}`;
+    parts.push(hasGlass(item) ? small(txt) : `${txt}원`);
+  }
+  return parts.join(' <span style="color:var(--text-muted);font-weight:400;font-size:11px;">/</span> ') || '-';
+}
+
 function renderAdminCategories() {
   adminCategoryNav.innerHTML = '';
 
@@ -2750,6 +2817,7 @@ function renderAdminList() {
     .filter(i => matchSearch(i, adminSearchQuery))
     .filter(i => {
       if (adminCategory === 'all') return true;
+      if (isVirtualTab(adminCategory)) return VIRTUAL_TABS[adminCategory](i);
       if (i.category !== adminCategory) return false;
       if (SUBS[adminCategory] && adminSub !== 'all') return effectiveSub(i) === adminSub;
       return true;
@@ -2772,7 +2840,7 @@ function renderAdminList() {
     <div class="admin-item${item.hidden ? ' soldout-item' : ''}">
       <div class="admin-item-info" onclick="openQuickEditModal('${item.id}')" title="사진/도수/노트 빠른 편집">
         <div class="admin-item-name">${item.starred ? '<span style="color:var(--gold);">\u2605 </span>' : ''}${escapeHtml(item.name)}</div>
-        <div class="admin-item-price">${isBottleOnly(item.category) ? 'B ' : ''}${formatPrice(item.price)}원${item.halfPrice ? ` <span style="color:var(--text-muted);font-weight:400;font-size:11px;">/ H ${formatPrice(item.halfPrice)}</span>` : ''}${item.bottlePrice ? ` <span style="color:var(--text-muted);font-weight:400;font-size:11px;">/ B ${formatPrice(item.bottlePrice)}</span>` : ''}</div>
+        <div class="admin-item-price">${adminPriceLine(item)}</div>
         <div class="admin-item-detail">${item.region ? escapeHtml(item.region) : ''}${item.abv ? ' ' + item.abv + '%' : ''}</div>
         <div class="admin-badges">
           ${isPendingItem(item.id) ? '<span class="badge badge-pending">저장 중…</span>' : ''}
@@ -2888,16 +2956,6 @@ function updateFormVisibility(category, sub) {
 
   document.getElementById('form-flavor-group').style.display = isSpirit(category) ? '' : 'none';
 
-  // BOTTLE: 바틀 가격 한 칸만 입력 (기존 price 칸에 저장), 하프/바틀 칸 숨김
-  const bottleOnly = isBottleOnly(category);
-  const priceLabel = document.querySelector('label[for="form-price"]');
-  if (priceLabel) priceLabel.textContent = bottleOnly ? '바틀 가격 (원) *' : '한잔 가격 (원) *';
-  document.getElementById('form-half-price-group').style.display = bottleOnly ? 'none' : '';
-  document.getElementById('form-bottle-price-group').style.display = bottleOnly ? 'none' : '';
-  if (bottleOnly) {
-    document.getElementById('form-half-price').value = '';
-    document.getElementById('form-bottle-price').value = '';
-  }
 
   const notesLabel = document.querySelector('label[for="form-notes"]');
   const notesField = document.getElementById('form-notes');
@@ -2952,9 +3010,10 @@ function openModal(item = null) {
   updateFormVisibility(item ? item.category : '', item ? (effectiveSub(item) || '') : '');
   updateRegionOptions((item && item.category === 'whiskey') ? (item.subcategory || '') : '', item ? (item.region || '') : '');
   document.getElementById('form-region').value = item ? (item.region || '') : '';
-  document.getElementById('form-price').value = item ? item.price : '';
+  document.getElementById('form-price').value = item && item.price ? item.price : '';
   document.getElementById('form-half-price').value = item && item.halfPrice ? item.halfPrice : '';
   document.getElementById('form-bottle-price').value = item && item.bottlePrice ? item.bottlePrice : '';
+  document.getElementById('form-bottle-discount').value = item && item.bottleDiscount ? item.bottleDiscount : '';
   document.getElementById('form-abv').value = item ? (item.abv || '') : '';
   document.getElementById('form-notes').value = item ? (item.notes || '') : '';
   document.getElementById('form-order').value = item ? (item.order || 0) : 0;
@@ -3065,14 +3124,18 @@ form.onsubmit = (e) => {
     category: cat,
     subcategory: SUBS[cat] ? (document.getElementById('form-sub').value || null) : null,
     region: document.getElementById('form-region').value.trim() || null,
-    price: Number(document.getElementById('form-price').value),
-    halfPrice: isBottleOnly(cat) ? null : (Number(document.getElementById('form-half-price').value) || null),
-    bottlePrice: isBottleOnly(cat) ? null : (Number(document.getElementById('form-bottle-price').value) || null),
+    price: Number(document.getElementById('form-price').value) || null,
+    halfPrice: Number(document.getElementById('form-half-price').value) || null,
+    bottlePrice: Number(document.getElementById('form-bottle-price').value) || null,
+    bottleDiscount: null,
     abv: Number(document.getElementById('form-abv').value) || null,
     notes: document.getElementById('form-notes').value.trim() || null,
     order: Number(document.getElementById('form-order').value) || 0,
     flavor: (function(){ const f = FLAVOR_AXES.map((_, i) => { const el = document.getElementById('form-flavor-'+i); return el ? Number(el.value) : 0; }); return f.some(v => v > 0) ? f : null; })(),
   };
+  if (!values.price && !values.bottlePrice) { alert('한잔 가격 또는 바틀 가격 중 하나는 입력해주세요.'); return; }
+  const disc = Math.min(99, Math.max(0, Math.round(Number(document.getElementById('form-bottle-discount').value) || 0)));
+  values.bottleDiscount = (values.bottlePrice && disc) ? disc : null;
   const newId = id || generateId();
   const img = buildImageChange(newId, formImageState, document.getElementById('form-image').value.trim(), orig);
   Object.assign(values, img.values);
@@ -3237,19 +3300,19 @@ window.openDetailModal = function(id) {
   if (item.price) {
     const row = document.createElement('div');
     row.className = 'detail-price-row';
-    row.innerHTML = `<div class="detail-price-label">${isBottleOnly(item.category) ? 'Bottle' : 'Glass'}</div><div class="detail-price-value">${formatPrice(item.price)}<span>${lang === 'en' ? ' KRW' : '원'}</span></div>`;
+    row.innerHTML = `<div class="detail-price-label">Glass</div><div class="detail-price-value">${formatPrice(item.price)}<span>${lang === 'en' ? ' KRW' : '원'}</span></div>`;
     pricesEl.appendChild(row);
   }
-  if (item.halfPrice && !isBottleOnly(item.category)) {
+  if (item.halfPrice) {
     const row = document.createElement('div');
     row.className = 'detail-price-row';
     row.innerHTML = `<div class="detail-price-label">Half</div><div class="detail-price-value">${formatPrice(item.halfPrice)}<span>${lang === 'en' ? ' KRW' : '원'}</span></div>`;
     pricesEl.appendChild(row);
   }
-  if (item.bottlePrice && !isBottleOnly(item.category)) {
+  if (item.bottlePrice) {
     const row = document.createElement('div');
     row.className = 'detail-price-row';
-    row.innerHTML = `<div class="detail-price-label">Bottle</div><div class="detail-price-value">${formatPrice(item.bottlePrice)}<span>${lang === 'en' ? ' KRW' : '원'}</span></div>`;
+    row.innerHTML = `<div class="detail-price-label">Bottle</div><div class="detail-price-value">${bottlePriceHtml(item, lang === 'en' ? 'KRW' : '원')}</div>`;
     pricesEl.appendChild(row);
   }
 
@@ -3473,16 +3536,17 @@ document.getElementById('btn-clipboard-paste').onclick = async () => {
 };
 
 // ===== Utilities =====
-function applySorting(arr, mode) {
+function applySorting(arr, mode, priceOf) {
+  priceOf = priceOf || (i => i.price || 0);
   switch (mode) {
     case 'name-asc':
       return arr.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ko'));
     case 'name-desc':
       return arr.sort((a, b) => (b.name || '').localeCompare(a.name || '', 'ko'));
     case 'price-asc':
-      return arr.sort((a, b) => (a.price || 0) - (b.price || 0));
+      return arr.sort((a, b) => priceOf(a) - priceOf(b));
     case 'price-desc':
-      return arr.sort((a, b) => (b.price || 0) - (a.price || 0));
+      return arr.sort((a, b) => priceOf(b) - priceOf(a));
     case 'name-en-asc':
       return arr.sort((a, b) => (a.nameEn || '').localeCompare(b.nameEn || '', 'en'));
     default:
