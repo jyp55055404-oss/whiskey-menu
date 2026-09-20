@@ -1947,7 +1947,8 @@ let migrationPromise = null;
 let migrationProgress = null;
 let formImageState = 'keep';       // 수정 모달의 사진 상태: keep | set | clear
 let quickImageState = 'keep';      // 빠른 편집 모달의 사진 상태
-let editingOriginal = null;        // 수정 모달을 열 때의 항목 (바뀐 필드만 저장하기 위한 기준)
+let editorBaseline = null;         // 수정 창을 열었을 때 읽은 입력값 (저장 시 이것과 비교해 바뀐 칸만 저장)
+let quickBaseline = null;          // 빠른 편집 창의 기준값
 let modalSession = 0;              // 모달을 열 때마다 증가 → 이전 저장 완료가 새로 연 창을 닫지 않게
 const WRITE_TIMEOUT_MS = 20000;
 
@@ -3016,7 +3017,6 @@ document.getElementById('form-subcategory').onchange = (e) => {
 
 function openModal(item = null) {
   modalSession++;
-  editingOriginal = item ? { ...item } : null;
   document.getElementById('modal-title').textContent = item ? '메뉴 수정' : '메뉴 추가';
   document.getElementById('form-id').value = item ? item.id : '';
   document.getElementById('form-name').value = item ? item.name : '';
@@ -3051,6 +3051,8 @@ function openModal(item = null) {
     });
   }
 
+  // 비교 기준: 창을 다 채운 직후의 입력값. 이후 다른 기기의 변경이 와도 이 기준은 바꾸지 않는다.
+  editorBaseline = item ? JSON.parse(JSON.stringify(readEditorValues())) : null;
   modal.style.display = 'flex';
 }
 
@@ -3126,15 +3128,10 @@ function buildImageChange(id, state, value, orig) {
   return { values, imageUpload, cleanup };
 }
 
-// Form submit
-form.onsubmit = (e) => {
-  e.preventDefault();
-  const id = document.getElementById('form-id').value;
-  const orig = id ? (findItem(id) || editingOriginal) : null;
-  if (id && !orig) { alert('다른 기기에서 삭제된 메뉴입니다.'); return; }
-
+// 수정 창의 입력값을 한 가지 규칙으로 정리해서 읽는다 (창을 열 때와 저장할 때 똑같이 사용 → 거짓 변경 방지)
+function readEditorValues() {
   const cat = document.getElementById('form-category').value;
-  const values = {
+  const v = {
     name: document.getElementById('form-name').value.trim(),
     nameEn: document.getElementById('form-name-en').value.trim() || null,
     category: cat,
@@ -3148,23 +3145,42 @@ form.onsubmit = (e) => {
     abv: Number(document.getElementById('form-abv').value) || null,
     notes: document.getElementById('form-notes').value.trim() || null,
     order: Number(document.getElementById('form-order').value) || 0,
-    flavor: (function(){ const f = FLAVOR_AXES.map((_, i) => { const el = document.getElementById('form-flavor-'+i); return el ? Number(el.value) : 0; }); return f.some(v => v > 0) ? f : null; })(),
+    flavor: (function(){ const f = FLAVOR_AXES.map((_, i) => { const el = document.getElementById('form-flavor-'+i); return el ? Number(el.value) : 0; }); return f.some(x => x > 0) ? f : null; })(),
   };
-  if (!values.price && !values.bottlePrice) { alert('한잔 가격 또는 바틀 가격 중 하나는 입력해주세요.'); return; }
   const disc = Math.min(99, Math.max(0, Math.round(Number(document.getElementById('form-bottle-discount').value) || 0)));
-  values.bottleDiscount = (values.bottlePrice && disc) ? disc : null;
-  values.bottleSoldOut = (values.bottlePrice && document.getElementById('form-bottle-soldout').checked) ? true : null;
+  v.bottleDiscount = (v.bottlePrice && disc) ? disc : null;
+  v.bottleSoldOut = (v.bottlePrice && document.getElementById('form-bottle-soldout').checked) ? true : null;
+  return v;
+}
+function readQuickValues() {
+  const abv = document.getElementById('quick-abv').value;
+  return {
+    abv: abv ? Number(abv) : null,
+    notes: document.getElementById('quick-notes').value.trim() || null,
+  };
+}
+
+// Form submit
+form.onsubmit = (e) => {
+  e.preventDefault();
+  const id = document.getElementById('form-id').value;
+  const cur = id ? findItem(id) : null;                 // 서버 최신 항목 (삭제 확인·사진 정리용)
+  if (id && !cur) { alert('다른 기기에서 삭제된 메뉴입니다.'); return; }
+
+  const values = readEditorValues();
+  if (!values.price && !values.bottlePrice) { alert('한잔 가격 또는 바틀 가격 중 하나는 입력해주세요.'); return; }
   const newId = id || generateId();
-  const img = buildImageChange(newId, formImageState, document.getElementById('form-image').value.trim(), orig);
-  Object.assign(values, img.values);
+  const img = buildImageChange(newId, formImageState, document.getElementById('form-image').value.trim(), cur);
 
   let op;
   if (id) {
-    const patch = diffPatch(orig, values);   // 실제로 바뀐 필드만 서버 최신 데이터에 합친다
+    // 기준 = 창을 열었을 때의 입력값. 그 뒤 다른 기기가 바꾼 칸은 건드리지 않는다.
+    // 사진 변경(set/clear)은 diff 를 거치지 않고 그대로 합친다 (keep 이면 img.values 가 비어 있음).
+    const patch = Object.assign(diffPatch(editorBaseline || {}, values), img.values);
     if (!Object.keys(patch).length) { modal.style.display = 'none'; return; }
     op = { type: 'patch', id, patch, imageUpload: img.imageUpload, cleanup: img.cleanup, label: '메뉴 수정' };
   } else {
-    const item = slimItem({ id: newId, ...values });
+    const item = slimItem({ id: newId, ...values, ...img.values });
     if (img.imageUpload) item.imageVer = img.imageUpload.ver;
     op = { type: 'add', id: newId, item, imageUpload: img.imageUpload, cleanup: [], label: '메뉴 추가' };
   }
@@ -3349,7 +3365,6 @@ window.openQuickEditModal = function(id) {
   const item = findItem(id);
   if (!item) return;
   modalSession++;
-  editingOriginal = { ...item };
   document.getElementById('quick-edit-title').textContent = item.name + ' — 빠른 편집';
   document.getElementById('quick-id').value = item.id;
   document.getElementById('quick-abv').value = item.abv || '';
@@ -3372,6 +3387,7 @@ window.openQuickEditModal = function(id) {
       if (url && quickImageState === 'keep' && modalSession === session) showQuickImage(url);
     });
   }
+  quickBaseline = JSON.parse(JSON.stringify(readQuickValues()));
   quickEditModal.style.display = 'flex';
 };
 
@@ -3433,16 +3449,11 @@ quickEditModal.onclick = (e) => { if (e.target === quickEditModal) quickEditModa
 document.getElementById('quick-edit-form').onsubmit = (e) => {
   e.preventDefault();
   const id = document.getElementById('quick-id').value;
-  const orig = findItem(id) || editingOriginal;
-  if (!orig) { alert('다른 기기에서 삭제된 메뉴입니다.'); return; }
-  const abv = document.getElementById('quick-abv').value;
-  const values = {
-    abv: abv ? Number(abv) : null,
-    notes: document.getElementById('quick-notes').value.trim() || null,
-  };
-  const img = buildImageChange(id, quickImageState, document.getElementById('quick-image').value.trim(), orig);
-  Object.assign(values, img.values);
-  const patch = diffPatch(orig, values);
+  const cur = findItem(id);
+  if (!cur) { alert('다른 기기에서 삭제된 메뉴입니다.'); return; }
+  const values = readQuickValues();
+  const img = buildImageChange(id, quickImageState, document.getElementById('quick-image').value.trim(), cur);
+  const patch = Object.assign(diffPatch(quickBaseline || {}, values), img.values);   // 기준 = 창을 열었을 때의 입력값, 사진 변경은 그대로 합침
   if (!Object.keys(patch).length) { quickEditModal.style.display = 'none'; return; }
   const op = { type: 'patch', id, patch, imageUpload: img.imageUpload, cleanup: img.cleanup, label: '빠른 편집' };
   submitFromModal(op, quickEditModal, document.querySelector('#quick-edit-form button[type="submit"]'), renderAdminList);
