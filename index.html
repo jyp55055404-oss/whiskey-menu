@@ -1366,6 +1366,13 @@ body {
 }
 
 /* iPad landscape */
+/* 카테고리 탭 6개가 아이패드 세로 화면(768~1023px)에서도 한 줄에 들어가도록 살짝 축소 */
+@media (min-width: 768px) and (max-width: 1023px) {
+  .category-tab { font-size: 13px; padding: 8px 15px; letter-spacing: 2px; }
+}
+/* 관리자 화면 탭은 ALL 포함 7개라 항상 작은 크기 */
+.admin-view .category-tab { font-size: 13px; padding: 8px 14px; letter-spacing: 2px; }
+
 @media (min-width: 1024px) and (max-width: 1366px) and (orientation: landscape) {
   .menu-grid { grid-template-columns: repeat(3, 1fr); }
   .intro-inner { max-width: 600px; }
@@ -1555,34 +1562,16 @@ body {
             <select id="form-category" required>
               <option value="">선택</option>
               <option value="whiskey">WHISKEY</option>
+              <option value="bottle">BOTTLE</option>
               <option value="cocktail">COCKTAIL</option>
               <option value="signature">SIGNATURE</option>
+              <option value="champagne">CHAMPAGNE</option>
               <option value="food">FOOD</option>
             </select>
           </div>
-          <div class="form-group" id="form-whiskey-sub-group" style="display:none;">
-            <label for="form-whiskey-sub">위스키 분류</label>
-            <select id="form-whiskey-sub">
-              <option value="">선택</option>
-              <option value="scotch">Scotch</option>
-              <option value="bourbon">Bourbon & Rye</option>
-              <option value="japanese">Japanese</option>
-              <option value="ib">Independent</option>
-              <option value="brandy">Brandy & ETC</option>
-            </select>
-          </div>
-          <div class="form-group" id="form-cocktail-sub-group" style="display:none;">
-            <label for="form-cocktail-sub">칵테일 분류</label>
-            <select id="form-cocktail-sub">
-              <option value="">선택</option>
-              <option value="vodka">Vodka</option>
-              <option value="gin">Gin</option>
-              <option value="rum">Rum</option>
-              <option value="tequila">Tequila</option>
-              <option value="whiskey">Whiskey</option>
-              <option value="sparkling">Sparkling</option>
-              <option value="cognac_etc">Cognac & ETC</option>
-            </select>
+          <div class="form-group" id="form-sub-group" style="display:none;">
+            <label for="form-sub">분류</label>
+            <select id="form-sub"></select>
           </div>
         </div>
 
@@ -1607,14 +1596,14 @@ body {
             <label for="form-price">한잔 가격 (원) *</label>
             <input type="number" id="form-price" required placeholder="예: 25000">
           </div>
-          <div class="form-group">
+          <div class="form-group" id="form-half-price-group">
             <label for="form-half-price">하프 가격 (원)</label>
             <input type="number" id="form-half-price" placeholder="비싼 술만 입력, 없으면 비워두기">
           </div>
         </div>
 
         <div class="form-row">
-          <div class="form-group">
+          <div class="form-group" id="form-bottle-price-group">
             <label for="form-bottle-price">바틀 가격 (원)</label>
             <input type="number" id="form-bottle-price" placeholder="없으면 비워두기">
           </div>
@@ -1817,10 +1806,12 @@ body {
   <script>
 // ===== Data Layer =====
 const STORAGE_KEY = 'whiskey_menu_data';
-const CATEGORIES = {
+const CATEGORIES = {   // 순서 = 탭 순서
   whiskey: 'WHISKEY',
+  bottle: 'BOTTLE',
   cocktail: 'COCKTAIL',
   signature: 'SIGNATURE',
+  champagne: 'CHAMPAGNE',
   food: 'FOOD',
 };
 
@@ -1845,6 +1836,20 @@ const COCKTAIL_SUBS = {
 };
 
 const SCOTCH_REGIONS = ['Speyside', 'Highland', 'Islay', 'Lowland', 'Campbeltown', 'Island'];
+
+// 카테고리별 서브 탭 (없는 카테고리는 서브 탭 없음)
+const SUBS = {
+  whiskey: WHISKEY_SUBS,
+  cocktail: COCKTAIL_SUBS,
+  signature: { all: 'ALL', yeons: "YEON'S", seasonal: 'SEASONAL' },
+  food: { all: 'ALL', main: 'MAIN', small: 'SMALL BITES & DESSERT' },
+};
+// 분류가 비어 있는 기존 항목을 어느 서브 탭으로 볼지 (데이터는 건드리지 않음)
+const DEFAULT_SUB = { signature: 'yeons', food: 'main' };
+const SUB_LABEL = { whiskey: '위스키 분류', cocktail: '칵테일 분류', signature: '시그니처 분류', food: '푸드 분류' };
+function effectiveSub(item) { return (item && (item.subcategory || DEFAULT_SUB[item.category])) || null; }
+function isSpirit(cat) { return cat === 'whiskey' || cat === 'bottle'; }     // 도수·노트·맛 그래프 대상
+function isBottleOnly(cat) { return cat === 'bottle'; }                        // 바틀 가격 하나만 표시
 
 let storageAvailable = true;
 try {
@@ -2529,14 +2534,12 @@ function noteText(item) {
   } catch (e) {}
 })();
 let activeCategory = 'whiskey';
-let activeWhiskeySub = 'all';
-let activeCocktailSub = 'all';
+let activeSub = 'all';        // 현재 카테고리의 서브 탭
 let activeRegion = 'all';
 let searchQuery = '';
 let adminSearchQuery = '';
 let adminCategory = 'all';
-let adminWhiskeySub = 'all';
-let adminCocktailSub = 'all';
+let adminSub = 'all';
 let deleteTargetId = null;
 let sortMode = 'default';
 let adminSortMode = 'default';
@@ -2566,55 +2569,42 @@ function renderCategories() {
     btn.textContent = label;
     btn.onclick = () => {
       activeCategory = key;
-      activeWhiskeySub = 'all';
-      activeCocktailSub = 'all';
+      activeSub = 'all';
       activeRegion = 'all';
       renderCategories();
-      renderWhiskeySubs();
+      renderSubs();
       renderRegions();
       renderMenu();
     };
     categoryNav.appendChild(btn);
   });
 
-  renderWhiskeySubs();
+  renderSubs();
   renderRegions();
 }
 
-function renderWhiskeySubs() {
+function renderSubs() {
   subcategoryNav.innerHTML = '';
-  if (activeCategory === 'whiskey') {
-    Object.entries(WHISKEY_SUBS).forEach(([key, label]) => {
-      const btn = document.createElement('button');
-      btn.className = 'subcategory-tab' + (activeWhiskeySub === key ? ' active' : '');
-      btn.textContent = label;
-      btn.onclick = () => {
-        activeWhiskeySub = key;
-        activeRegion = 'all';
-        renderWhiskeySubs();
-        renderRegions();
-        renderMenu();
-      };
-      subcategoryNav.appendChild(btn);
-    });
-  } else if (activeCategory === 'cocktail') {
-    Object.entries(COCKTAIL_SUBS).forEach(([key, label]) => {
-      const btn = document.createElement('button');
-      btn.className = 'subcategory-tab' + (activeCocktailSub === key ? ' active' : '');
-      btn.textContent = label;
-      btn.onclick = () => {
-        activeCocktailSub = key;
-        renderWhiskeySubs();
-        renderMenu();
-      };
-      subcategoryNav.appendChild(btn);
-    });
-  }
+  const subs = SUBS[activeCategory];
+  if (!subs) return;
+  Object.entries(subs).forEach(([key, label]) => {
+    const btn = document.createElement('button');
+    btn.className = 'subcategory-tab' + (activeSub === key ? ' active' : '');
+    btn.textContent = label;
+    btn.onclick = () => {
+      activeSub = key;
+      activeRegion = 'all';
+      renderSubs();
+      renderRegions();
+      renderMenu();
+    };
+    subcategoryNav.appendChild(btn);
+  });
 }
 
 function renderRegions() {
   regionNav.innerHTML = '';
-  if (activeCategory !== 'whiskey' || activeWhiskeySub !== 'scotch') return;
+  if (activeCategory !== 'whiskey' || activeSub !== 'scotch') return;
 
   const usedRegions = new Set(
     items.filter(i => i.category === 'whiskey' && i.subcategory === 'scotch').map(i => i.region)
@@ -2651,18 +2641,11 @@ function renderMenu() {
     .filter(i => matchSearch(i, searchQuery))
     .filter(i => i.category === activeCategory)
     .filter(i => {
-      if (activeCategory === 'whiskey') {
-        if (activeWhiskeySub === 'all') return true;
-        return i.subcategory === activeWhiskeySub;
-      }
-      if (activeCategory === 'cocktail') {
-        if (activeCocktailSub === 'all') return true;
-        return i.subcategory === activeCocktailSub;
-      }
-      return true;
+      if (!SUBS[activeCategory] || activeSub === 'all') return true;
+      return effectiveSub(i) === activeSub;
     })
     .filter(i => {
-      if (activeCategory !== 'whiskey' || activeWhiskeySub !== 'scotch') return true;
+      if (activeCategory !== 'whiskey' || activeSub !== 'scotch') return true;
       if (activeRegion === 'all') return true;
       return i.region === activeRegion;
     });
@@ -2697,9 +2680,9 @@ function renderMenu() {
         ${item.region ? `<div class="card-region">${escapeHtml(item.region)}</div>` : ''}
         ${(item.category === 'cocktail' || item.category === 'signature') && recipeLine(item) ? `<div class="card-recipe">${escapeHtml(recipeLine(item))}</div>` : ''}
         <div class="card-prices">
-          <div class="card-price">${formatPrice(item.price)}<span> ${unit}</span></div>
+          ${isBottleOnly(item.category) ? `<div class="card-price">Bottle ${formatPrice(item.price)}<span> ${unit}</span></div>` : `<div class="card-price">${formatPrice(item.price)}<span> ${unit}</span></div>
           ${item.halfPrice ? `<div class="card-half-price">Half ${formatPrice(item.halfPrice)}<span> ${unit}</span></div>` : ''}
-          ${item.bottlePrice ? `<div class="card-bottle-price">Bottle ${formatPrice(item.bottlePrice)}<span> ${unit}</span></div>` : ''}
+          ${item.bottlePrice ? `<div class="card-bottle-price">Bottle ${formatPrice(item.bottlePrice)}<span> ${unit}</span></div>` : ''}`}
         </div>
       </div>
       ${item.category === 'signature' && itemHasImage(item) ? `<img class="card-thumb" data-img-id="${escapeHtml(item.id)}" data-img-ver="${item.imageVer || ''}"${imageOf(item) ? ` src="${escapeHtml(imageOf(item))}"` : ''} alt="">` : ''}
@@ -2723,8 +2706,7 @@ function renderAdminCategories() {
   allBtn.textContent = 'ALL';
   allBtn.onclick = () => {
     adminCategory = 'all';
-    adminWhiskeySub = 'all';
-    adminCocktailSub = 'all';
+    adminSub = 'all';
     renderAdminCategories();
     renderAdminList();
   };
@@ -2736,44 +2718,31 @@ function renderAdminCategories() {
     btn.textContent = label;
     btn.onclick = () => {
       adminCategory = key;
-      adminWhiskeySub = 'all';
-      adminCocktailSub = 'all';
+      adminSub = 'all';
       renderAdminCategories();
       renderAdminList();
     };
     adminCategoryNav.appendChild(btn);
   });
 
-  renderAdminWhiskeySubs();
+  renderAdminSubs();
 }
 
-function renderAdminWhiskeySubs() {
+function renderAdminSubs() {
   adminSubcategoryNav.innerHTML = '';
-  if (adminCategory === 'whiskey') {
-    Object.entries(WHISKEY_SUBS).forEach(([key, label]) => {
-      const btn = document.createElement('button');
-      btn.className = 'subcategory-tab' + (adminWhiskeySub === key ? ' active' : '');
-      btn.textContent = label;
-      btn.onclick = () => {
-        adminWhiskeySub = key;
-        renderAdminWhiskeySubs();
-        renderAdminList();
-      };
-      adminSubcategoryNav.appendChild(btn);
-    });
-  } else if (adminCategory === 'cocktail') {
-    Object.entries(COCKTAIL_SUBS).forEach(([key, label]) => {
-      const btn = document.createElement('button');
-      btn.className = 'subcategory-tab' + (adminCocktailSub === key ? ' active' : '');
-      btn.textContent = label;
-      btn.onclick = () => {
-        adminCocktailSub = key;
-        renderAdminWhiskeySubs();
-        renderAdminList();
-      };
-      adminSubcategoryNav.appendChild(btn);
-    });
-  }
+  const subs = SUBS[adminCategory];
+  if (!subs) return;
+  Object.entries(subs).forEach(([key, label]) => {
+    const btn = document.createElement('button');
+    btn.className = 'subcategory-tab' + (adminSub === key ? ' active' : '');
+    btn.textContent = label;
+    btn.onclick = () => {
+      adminSub = key;
+      renderAdminSubs();
+      renderAdminList();
+    };
+    adminSubcategoryNav.appendChild(btn);
+  });
 }
 
 function renderAdminList() {
@@ -2782,19 +2751,14 @@ function renderAdminList() {
     .filter(i => {
       if (adminCategory === 'all') return true;
       if (i.category !== adminCategory) return false;
-      if (adminCategory === 'whiskey' && adminWhiskeySub !== 'all') {
-        return i.subcategory === adminWhiskeySub;
-      }
-      if (adminCategory === 'cocktail' && adminCocktailSub !== 'all') {
-        return i.subcategory === adminCocktailSub;
-      }
+      if (SUBS[adminCategory] && adminSub !== 'all') return effectiveSub(i) === adminSub;
       return true;
     })
     .filter(i => {
       if (adminSortMode === 'missing-image') return !itemHasImage(i);
-      if (adminSortMode === 'missing-abv') return i.category === 'whiskey' && !i.abv;
-      if (adminSortMode === 'missing-notes') return i.category === 'whiskey' && !(i.notes && i.notes.trim());
-      if (adminSortMode === 'missing-flavor') return i.category === 'whiskey' && (!i.flavor || !i.flavor.some(v => v > 0));
+      if (adminSortMode === 'missing-abv') return isSpirit(i.category) && !i.abv;
+      if (adminSortMode === 'missing-notes') return isSpirit(i.category) && !(i.notes && i.notes.trim());
+      if (adminSortMode === 'missing-flavor') return isSpirit(i.category) && (!i.flavor || !i.flavor.some(v => v > 0));
       return true;
     });
   applySorting(sorted, adminSortMode);
@@ -2808,14 +2772,14 @@ function renderAdminList() {
     <div class="admin-item${item.hidden ? ' soldout-item' : ''}">
       <div class="admin-item-info" onclick="openQuickEditModal('${item.id}')" title="사진/도수/노트 빠른 편집">
         <div class="admin-item-name">${item.starred ? '<span style="color:var(--gold);">\u2605 </span>' : ''}${escapeHtml(item.name)}</div>
-        <div class="admin-item-price">${formatPrice(item.price)}원${item.halfPrice ? ` <span style="color:var(--text-muted);font-weight:400;font-size:11px;">/ H ${formatPrice(item.halfPrice)}</span>` : ''}${item.bottlePrice ? ` <span style="color:var(--text-muted);font-weight:400;font-size:11px;">/ B ${formatPrice(item.bottlePrice)}</span>` : ''}</div>
+        <div class="admin-item-price">${isBottleOnly(item.category) ? 'B ' : ''}${formatPrice(item.price)}원${item.halfPrice ? ` <span style="color:var(--text-muted);font-weight:400;font-size:11px;">/ H ${formatPrice(item.halfPrice)}</span>` : ''}${item.bottlePrice ? ` <span style="color:var(--text-muted);font-weight:400;font-size:11px;">/ B ${formatPrice(item.bottlePrice)}</span>` : ''}</div>
         <div class="admin-item-detail">${item.region ? escapeHtml(item.region) : ''}${item.abv ? ' ' + item.abv + '%' : ''}</div>
         <div class="admin-badges">
           ${isPendingItem(item.id) ? '<span class="badge badge-pending">저장 중…</span>' : ''}
           ${itemHasImage(item) ? '<span class="badge badge-img-yes">\uD83D\uDCF7 \uC0AC\uC9C4</span>' : '<span class="badge badge-img-no">\uC0AC\uC9C4 \uC5C6\uC74C</span>'}
-          ${item.category === 'whiskey' && !item.abv ? '<span class="badge badge-missing">\uB3C4\uC218 \uBBF8\uC785\uB825</span>' : ''}
-          ${item.category === 'whiskey' && !(item.notes && item.notes.trim()) ? '<span class="badge badge-missing">\uB178\uD2B8 \uBBF8\uC785\uB825</span>' : ''}
-          ${item.category === 'whiskey' && (!item.flavor || !item.flavor.some(v => v > 0)) ? '<span class="badge badge-missing">맛점수 없음</span>' : ''}
+          ${isSpirit(item.category) && !item.abv ? '<span class="badge badge-missing">\uB3C4\uC218 \uBBF8\uC785\uB825</span>' : ''}
+          ${isSpirit(item.category) && !(item.notes && item.notes.trim()) ? '<span class="badge badge-missing">\uB178\uD2B8 \uBBF8\uC785\uB825</span>' : ''}
+          ${isSpirit(item.category) && (!item.flavor || !item.flavor.some(v => v > 0)) ? '<span class="badge badge-missing">맛점수 없음</span>' : ''}
         </div>
       </div>
       <div class="admin-item-actions">
@@ -2898,27 +2862,42 @@ document.getElementById('btn-close-admin').onclick = () => {
 // ===== Add / Edit Modal =====
 document.getElementById('btn-add').onclick = () => openModal();
 
-function updateFormVisibility(category, whiskeySub) {
-  const whiskeySubGroup = document.getElementById('form-whiskey-sub-group');
-  const cocktailSubGroup = document.getElementById('form-cocktail-sub-group');
-  const subcategoryGroup = document.getElementById('form-subcategory-group');
-
-  if (category === 'whiskey') {
-    whiskeySubGroup.style.display = '';
-    cocktailSubGroup.style.display = 'none';
-    document.getElementById('form-cocktail-sub').value = '';
-  } else if (category === 'cocktail') {
-    whiskeySubGroup.style.display = 'none';
-    cocktailSubGroup.style.display = '';
-    document.getElementById('form-whiskey-sub').value = '';
+function updateFormVisibility(category, sub) {
+  // 카테고리에 맞는 분류 목록을 채운다 (all 제외). 새 항목이면 기본 분류를 미리 고른다.
+  const subGroup = document.getElementById('form-sub-group');
+  const subSel = document.getElementById('form-sub');
+  const subLabel = document.querySelector('label[for="form-sub"]');
+  const subs = SUBS[category];
+  subSel.innerHTML = '';
+  if (subs) {
+    subGroup.style.display = '';
+    if (subLabel) subLabel.textContent = SUB_LABEL[category] || '분류';
+    const none = document.createElement('option');
+    none.value = ''; none.textContent = '선택';
+    subSel.appendChild(none);
+    Object.entries(subs).forEach(([k, label]) => {
+      if (k === 'all') return;
+      const o = document.createElement('option');
+      o.value = k; o.textContent = label;
+      subSel.appendChild(o);
+    });
+    subSel.value = sub || DEFAULT_SUB[category] || '';
   } else {
-    whiskeySubGroup.style.display = 'none';
-    cocktailSubGroup.style.display = 'none';
-    document.getElementById('form-whiskey-sub').value = '';
-    document.getElementById('form-cocktail-sub').value = '';
+    subGroup.style.display = 'none';
   }
 
-  document.getElementById('form-flavor-group').style.display = (category === 'whiskey') ? '' : 'none';
+  document.getElementById('form-flavor-group').style.display = isSpirit(category) ? '' : 'none';
+
+  // BOTTLE: 바틀 가격 한 칸만 입력 (기존 price 칸에 저장), 하프/바틀 칸 숨김
+  const bottleOnly = isBottleOnly(category);
+  const priceLabel = document.querySelector('label[for="form-price"]');
+  if (priceLabel) priceLabel.textContent = bottleOnly ? '바틀 가격 (원) *' : '한잔 가격 (원) *';
+  document.getElementById('form-half-price-group').style.display = bottleOnly ? 'none' : '';
+  document.getElementById('form-bottle-price-group').style.display = bottleOnly ? 'none' : '';
+  if (bottleOnly) {
+    document.getElementById('form-half-price').value = '';
+    document.getElementById('form-bottle-price').value = '';
+  }
 
   const notesLabel = document.querySelector('label[for="form-notes"]');
   const notesField = document.getElementById('form-notes');
@@ -2931,7 +2910,7 @@ function updateFormVisibility(category, whiskeySub) {
   }
 
   // Show region dropdown only for scotch
-  updateRegionOptions(whiskeySub, '');
+  updateRegionOptions(category === 'whiskey' ? (subSel.value || '') : '', '');
 }
 
 function updateRegionOptions(whiskeySub, selected) {
@@ -2952,8 +2931,8 @@ document.getElementById('form-category').onchange = (e) => {
   updateFormVisibility(e.target.value, '');
 };
 
-document.getElementById('form-whiskey-sub').onchange = (e) => {
-  updateRegionOptions(e.target.value, '');
+document.getElementById('form-sub').onchange = (e) => {
+  if (document.getElementById('form-category').value === 'whiskey') updateRegionOptions(e.target.value, '');
 };
 
 document.getElementById('form-subcategory').onchange = (e) => {
@@ -2970,10 +2949,8 @@ function openModal(item = null) {
   document.getElementById('form-name').value = item ? item.name : '';
   document.getElementById('form-name-en').value = item ? (item.nameEn || '') : '';
   document.getElementById('form-category').value = item ? item.category : '';
-  document.getElementById('form-whiskey-sub').value = (item && item.category === 'whiskey') ? (item.subcategory || '') : '';
-  document.getElementById('form-cocktail-sub').value = (item && item.category === 'cocktail') ? (item.subcategory || '') : '';
-  updateFormVisibility(item ? item.category : '', item ? (item.subcategory || '') : '');
-  updateRegionOptions(item ? (item.subcategory || '') : '', item ? (item.region || '') : '');
+  updateFormVisibility(item ? item.category : '', item ? (effectiveSub(item) || '') : '');
+  updateRegionOptions((item && item.category === 'whiskey') ? (item.subcategory || '') : '', item ? (item.region || '') : '');
   document.getElementById('form-region').value = item ? (item.region || '') : '';
   document.getElementById('form-price').value = item ? item.price : '';
   document.getElementById('form-half-price').value = item && item.halfPrice ? item.halfPrice : '';
@@ -3086,12 +3063,11 @@ form.onsubmit = (e) => {
     name: document.getElementById('form-name').value.trim(),
     nameEn: document.getElementById('form-name-en').value.trim() || null,
     category: cat,
-    subcategory: cat === 'whiskey' ? (document.getElementById('form-whiskey-sub').value || null) :
-                 cat === 'cocktail' ? (document.getElementById('form-cocktail-sub').value || null) : null,
+    subcategory: SUBS[cat] ? (document.getElementById('form-sub').value || null) : null,
     region: document.getElementById('form-region').value.trim() || null,
     price: Number(document.getElementById('form-price').value),
-    halfPrice: Number(document.getElementById('form-half-price').value) || null,
-    bottlePrice: Number(document.getElementById('form-bottle-price').value) || null,
+    halfPrice: isBottleOnly(cat) ? null : (Number(document.getElementById('form-half-price').value) || null),
+    bottlePrice: isBottleOnly(cat) ? null : (Number(document.getElementById('form-bottle-price').value) || null),
     abv: Number(document.getElementById('form-abv').value) || null,
     notes: document.getElementById('form-notes').value.trim() || null,
     order: Number(document.getElementById('form-order').value) || 0,
@@ -3166,6 +3142,8 @@ function renderFlavorRadar(flavor) {
 const SUBCATEGORY_LABELS = {
   whiskey: { scotch: 'Scotch', bourbon: 'Bourbon & Rye', japanese: 'Japanese', ib: 'Independent', brandy: 'Brandy & ETC' },
   cocktail: { vodka: 'Vodka', gin: 'Gin', rum: 'Rum', tequila: 'Tequila', whiskey: 'Whiskey', sparkling: 'Sparkling', cognac_etc: 'Cognac & ETC' },
+  signature: { yeons: "Yeon's", seasonal: 'Seasonal' },
+  food: { main: 'Main', small: 'Small Bites & Dessert' },
 };
 
 function makePlaceholderEl() {
@@ -3226,7 +3204,7 @@ window.openDetailModal = function(id) {
   meta.innerHTML = '';
   const tags = [];
   if (item.category && CATEGORIES[item.category]) tags.push(CATEGORIES[item.category]);
-  const subLabel = SUBCATEGORY_LABELS[item.category] && SUBCATEGORY_LABELS[item.category][item.subcategory];
+  const subLabel = SUBCATEGORY_LABELS[item.category] && SUBCATEGORY_LABELS[item.category][effectiveSub(item)];
   if (subLabel) tags.push(subLabel);
   if (item.region) tags.push(item.region);
   tags.forEach(t => {
@@ -3259,16 +3237,16 @@ window.openDetailModal = function(id) {
   if (item.price) {
     const row = document.createElement('div');
     row.className = 'detail-price-row';
-    row.innerHTML = `<div class="detail-price-label">Glass</div><div class="detail-price-value">${formatPrice(item.price)}<span>${lang === 'en' ? ' KRW' : '원'}</span></div>`;
+    row.innerHTML = `<div class="detail-price-label">${isBottleOnly(item.category) ? 'Bottle' : 'Glass'}</div><div class="detail-price-value">${formatPrice(item.price)}<span>${lang === 'en' ? ' KRW' : '원'}</span></div>`;
     pricesEl.appendChild(row);
   }
-  if (item.halfPrice) {
+  if (item.halfPrice && !isBottleOnly(item.category)) {
     const row = document.createElement('div');
     row.className = 'detail-price-row';
     row.innerHTML = `<div class="detail-price-label">Half</div><div class="detail-price-value">${formatPrice(item.halfPrice)}<span>${lang === 'en' ? ' KRW' : '원'}</span></div>`;
     pricesEl.appendChild(row);
   }
-  if (item.bottlePrice) {
+  if (item.bottlePrice && !isBottleOnly(item.category)) {
     const row = document.createElement('div');
     row.className = 'detail-price-row';
     row.innerHTML = `<div class="detail-price-label">Bottle</div><div class="detail-price-value">${formatPrice(item.bottlePrice)}<span>${lang === 'en' ? ' KRW' : '원'}</span></div>`;
