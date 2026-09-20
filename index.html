@@ -1892,7 +1892,7 @@ const SUB_LABEL = { whiskey: '위스키 분류', cocktail: '칵테일 분류', s
 function effectiveSub(item) { return (item && (item.subcategory || DEFAULT_SUB[item.category])) || null; }
 function isSpirit(cat) { return cat === 'whiskey'; }     // 도수·노트·맛 그래프 대상
 // BOTTLE 탭은 따로 등록하는 카테고리가 아니라 "바틀 가격이 적힌 메뉴"가 자동으로 모이는 가상 탭
-const VIRTUAL_TABS = { bottle: i => Number(i && i.bottlePrice) > 0 };
+const VIRTUAL_TABS = { bottle: i => !!i && i.category === 'whiskey' && Number(i.bottlePrice) > 0 };   // BOTTLE 탭은 위스키 전용
 function isVirtualTab(cat) { return !!VIRTUAL_TABS[cat]; }
 function hasGlass(i) { return Number(i && i.price) > 0; }
 function bottleSoldOut(i) { return !!(i && i.bottleSoldOut); }   // 바틀만 품절 (잔은 판매)
@@ -1914,8 +1914,12 @@ function bottlePriceHtml(i, unitText) {
 // 어느 탭에 속하는지: 가상 탭이면 그 규칙, 아니면 카테고리 + 잔 가격 있음 (바틀 전용은 원래 탭에서 제외)
 function inTab(i, tab) {
   if (isVirtualTab(tab)) return VIRTUAL_TABS[tab](i);
-  return i.category === tab && hasGlass(i);
+  if (i.category !== tab) return false;
+  // 위스키만 "바틀 전용(잔 가격 없음)"은 WHISKEY 탭에서 숨기고 BOTTLE 탭에만 둔다. 샴페인 등은 자기 탭에 바틀 가격으로 표시.
+  return tab === 'whiskey' ? hasGlass(i) : (hasGlass(i) || Number(i.bottlePrice) > 0);
 }
+// 잔 가격 없이 바틀로만 파는 항목 (샴페인 등): 카드에 Bottle 가격을 크게, 바틀 품절이면 품절 표시
+function bottleOnlyItem(i) { return !!i && !hasGlass(i) && Number(i.bottlePrice) > 0; }
 
 let storageAvailable = true;
 try {
@@ -2745,8 +2749,8 @@ function renderMenu() {
 
   const unit = lang === 'en' ? 'KRW' : '원';
   menuGrid.innerHTML = finalFiltered.map(item => `
-    <div class="menu-card${(item.hidden || (activeCategory === 'bottle' && bottleSoldOut(item))) ? ' soldout' : ''}${item.category === 'signature' && itemHasImage(item) ? ' has-thumb' : ''}" onclick="openDetailModal('${item.id}')">
-      ${(item.hidden || (activeCategory === 'bottle' && bottleSoldOut(item))) ? '<div class="soldout-badge">SOLD OUT</div>' : ''}
+    <div class="menu-card${(item.hidden || ((activeCategory === 'bottle' || bottleOnlyItem(item)) && bottleSoldOut(item))) ? ' soldout' : ''}${item.category === 'signature' && itemHasImage(item) ? ' has-thumb' : ''}" onclick="openDetailModal('${item.id}')">
+      ${(item.hidden || ((activeCategory === 'bottle' || bottleOnlyItem(item)) && bottleSoldOut(item))) ? '<div class="soldout-badge">SOLD OUT</div>' : ''}
       <div class="card-body">
         <div class="card-header">
           <div>
@@ -2757,7 +2761,7 @@ function renderMenu() {
         ${item.region ? `<div class="card-region">${escapeHtml(item.region)}</div>` : ''}
         ${(item.category === 'cocktail' || item.category === 'signature') && recipeLine(item) ? `<div class="card-recipe">${escapeHtml(recipeLine(item))}</div>` : ''}
         <div class="card-prices">
-          ${activeCategory === 'bottle' ? `<div class="card-price">Bottle ${bottlePriceHtml(item, unit)}</div>` : `${hasGlass(item) ? `<div class="card-price">${formatPrice(item.price)}<span> ${unit}</span></div>` : ''}
+          ${(activeCategory === 'bottle' || bottleOnlyItem(item)) ? `<div class="card-price">Bottle ${bottlePriceHtml(item, unit)}</div>` : `${hasGlass(item) ? `<div class="card-price">${formatPrice(item.price)}<span> ${unit}</span></div>` : ''}
           ${item.halfPrice ? `<div class="card-half-price">Half ${formatPrice(item.halfPrice)}<span> ${unit}</span></div>` : ''}
           ${item.bottlePrice && !bottleSoldOut(item) ? `<div class="card-bottle-price">Bottle ${bottlePriceHtml(item, unit)}</div>` : ''}`}
         </div>
