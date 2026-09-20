@@ -2046,6 +2046,7 @@ function cacheLocal(list) {
 function renderAll() {
   try { renderMenu(); } catch (e) {}
   try { if (typeof adminView !== 'undefined' && adminView.style.display === 'flex') renderAdminList(); } catch (e) {}
+  try { refreshOpenDetail(); } catch (e) {}
 }
 
 // ===== 상태줄 =====
@@ -2098,10 +2099,15 @@ function loadImage(id, ver) {
   return pendingImageLoads[key];
 }
 
-function removeImageBestEffort(id, ver) {
-  if (!window._imagesRef) return;
-  const ref = ver ? window._imagesRef.child(imgPath(id, ver)) : window._imagesRef.child(imageKey(id));
-  ref.remove().catch(() => {});
+// 사진 정리는 "버전 하나"만 지운다 (폴더 전체 삭제 기능 없음 → 다른 기기가 올린 새 버전을 지우지 않는다)
+function removeImageVersionBestEffort(id, ver) {
+  if (!window._imagesRef || ver == null || ver === '') return;
+  window._imagesRef.child(imgPath(id, ver)).remove().catch(e => console.warn('이전 사진 정리 실패', { id, ver, e }));
+}
+// 새 사진 버전: 두 기기가 같은 순간 올려도 겹치지 않는 고유 키 (push() 는 쓰지 않고 키만 만든다)
+function newImageVer() {
+  try { if (window._imagesRef && window._imagesRef.push) return window._imagesRef.push().key; } catch (e) {}
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 }
 
 // 사진 여러 장을 20장씩 나눠 올린다 (한 번에 16MB 를 넘기지 않기 위해)
@@ -2162,10 +2168,10 @@ function mutatorFor(op) {
   throw new Error('unknown op');
 }
 
+// 저장은 서버(Firebase)가 확정했을 때만 성공. 서버 없이 이 기기에만 저장하는 경로는 없다.
 function writePrecheck() {
-  if (!window._menuRef) return null;
-  if (!window._fbLoaded) return '서버 데이터를 아직 불러오지 못했습니다.\n잠시 후 다시 시도해주세요.';
-  if (window._fbConnected === false) return '인터넷 연결이 끊어져 있습니다.\n연결 후 다시 저장해주세요.';
+  if (!window._menuRef || !window._fbLoaded) return '서버 메뉴를 불러온 뒤 저장해주세요.\n인터넷 연결을 확인해주세요.';
+  if (window._fbConnected !== true) return '인터넷 연결을 확인한 뒤 저장해주세요.';
   return null;
 }
 
@@ -2194,13 +2200,6 @@ function runImageMigration() {
 
 // 한 번의 저장 작업. 순서: (사진 새 버전 업로드) → 메뉴 트랜잭션 → 성공 시에만 옛 사진 정리
 async function runOp(op) {
-  if (!window._menuRef) {
-    // Firebase 없음(오프라인 전용): 로컬에만 적용
-    if (op.imageUpload) imageCache[cacheKey(op.id, op.imageUpload.ver)] = op.imageUpload.data;
-    items = mutatorFor(op)(items.map(slimItem));
-    cacheLocal(items);
-    return;
-  }
   await ensureImagesMigrated();
   if (op.imageUpload) {
     imageCache[cacheKey(op.id, op.imageUpload.ver)] = op.imageUpload.data;
@@ -2211,11 +2210,11 @@ async function runOp(op) {
   } catch (e) {
     if (op.imageUpload) {
       delete imageCache[cacheKey(op.id, op.imageUpload.ver)];
-      removeImageBestEffort(op.id, op.imageUpload.ver);   // 메뉴 저장 실패 → 새로 올린 사진만 치움 (옛 사진은 그대로)
+      removeImageVersionBestEffort(op.id, op.imageUpload.ver);   // 메뉴 저장 실패 → 새로 올린 사진만 치움 (옛 사진은 그대로)
     }
     throw e;
   }
-  (op.cleanup || []).forEach(c => removeImageBestEffort(c.id, c.ver));
+  (op.cleanup || []).forEach(c => removeImageVersionBestEffort(c.id, c.ver));   // 요청 시점에 정한 버전만
 }
 
 // op: {type:'add'|'patch'|'remove', id, item?, patch?, imageUpload?:{ver,data}, cleanup?:[{id,ver?}], label}
@@ -2237,21 +2236,29 @@ function commit(op) {
 }
 
 // 전체 교체(백업 가져오기/붙여넣기): 대기 중인 저장이 모두 끝난 뒤 실행, 그동안 새 저장은 기다린다
+let replaceInProgress = 0;
 function replaceAllItems(imported, label) {
   const err = writePrecheck();
   if (err) { alert(err); return Promise.resolve(false); }
-  const ver = Date.now();
+  const ver = newImageVer();
   const uploads = [];
   normalizeItems(imported, null, ver);
   imported.forEach(i => { if (i && i.imageVer === ver && imageCache[cacheKey(i.id, ver)]) uploads.push({ id: i.id, path: imgPath(i.id, ver), data: imageCache[cacheKey(i.id, ver)] }); });
+  // 요청한 순간에 앞서 있던 작업만 기다린다. 이후 들어오는 작업은 이 복원을 기다리므로(commit 의 gate) 서로 기다리는 일이 없다.
+  const waitFor = Object.values(itemChains).slice();
+  const previousGlobal = globalChain;
   const work = async () => {
-    await Promise.allSettled(Object.values(itemChains));
-    if (!window._menuRef) { items = imported.map(slimItem); cacheLocal(items); return; }
-    if (uploads.length) await uploadImagesChunked(uploads, (d, a) => { migrationProgress = '사진 업로드 중 ' + d + '/' + a; updateStatusLine(); });
-    migrationProgress = null; updateStatusLine();
-    await trackWrite(menuTxn(mutators.replaceAll(imported), { allowEmpty: true }), label);
+    await Promise.allSettled(waitFor);
+    replaceInProgress++;
+    try {
+      if (uploads.length) await uploadImagesChunked(uploads, (d, a) => { migrationProgress = '사진 업로드 중 ' + d + '/' + a; updateStatusLine(); });
+      migrationProgress = null; updateStatusLine();
+      await trackWrite(menuTxn(mutators.replaceAll(imported), { allowEmpty: true }), label);
+    } finally {
+      replaceInProgress--;
+    }
   };
-  const run = globalChain.then(work, work);
+  const run = previousGlobal.then(work, work);
   globalChain = run.catch(() => {}).finally(() => { migrationProgress = null; updateStatusLine(); });
   return run.then(() => { renderAll(); return true; }, e => { renderAll(); alert(label + ' 실패: ' + errMsg(e)); return false; });
 }
@@ -2273,21 +2280,23 @@ function submitFromModal(op, modalEl, submitBtn, onDone) {
 }
 
 // 내보내기용: /images 에서 각 항목의 버전 사진을 받아 옛 형식(사진 인라인)으로 합친다
+// 내보내기용: 확정 목록의 각 항목이 가리키는 버전 사진을 /images 에서 받아 옛 형식(사진 인라인)으로 합친다.
+// 사진이 있어야 하는데(imageVer) 못 찾은 항목은 missing 에 모아 돌려준다.
 async function withInlineImages(list) {
-  let all = {};
-  if (window._imagesRef) {
-    const snap = await window._imagesRef.once('value');
-    all = snap.val() || {};
-  }
-  return list.map(i => {
+  if (!window._imagesRef) throw new Error('서버 연결 없음');
+  const snap = await window._imagesRef.once('value');
+  const all = snap.val() || {};
+  const missing = [];
+  const out = list.map(i => {
     const o = { ...i };
-    delete o.imageVer;
     const node = all[imageKey(i.id)];
-    const d = (i.imageVer && node && typeof node['v' + i.imageVer] === 'string') ? node['v' + i.imageVer] : imageOf(i);
-    if (d) o.image = d;
-    else { if (!o.image) delete o.image; if (i.imageVer) o.imageVer = i.imageVer; }  // 사진을 못 찾으면 표시는 남긴다
+    const d = (i.imageVer && node && typeof node['v' + i.imageVer] === 'string') ? node['v' + i.imageVer] : (i.imageVer ? imageOf(i) : null);
+    if (i.imageVer && !d) { missing.push({ id: i.id, name: i.name }); return o; }   // imageVer 는 남겨 둔다
+    delete o.imageVer;
+    if (d) o.image = d; else if (!o.image) delete o.image;
     return o;
   });
+  return { items: out, missing };
 }
 
 function generateId() {
@@ -2760,7 +2769,7 @@ function renderMenu() {
   // 아직 안 받은 시그니처 썸네일은 한 장씩 불러온다
   menuGrid.querySelectorAll('img.card-thumb[data-img-id]').forEach(img => {
     if (img.getAttribute('src')) return;
-    loadImage(img.dataset.imgId, Number(img.dataset.imgVer)).then(url => { if (url) img.src = url; });
+    loadImage(img.dataset.imgId, img.dataset.imgVer).then(url => { if (url) img.src = url; });
   });
 }
 
@@ -2852,7 +2861,7 @@ function renderAdminList() {
   }
 
   adminList.innerHTML = sorted.map(item => `
-    <div class="admin-item${(item.hidden || (adminCategory === 'bottle' && bottleSoldOut(item))) ? ' soldout-item' : ''}">
+    <div class="admin-item${(item.hidden || bottleSoldOut(item)) ? ' soldout-item' : ''}">
       <div class="admin-item-info" onclick="openQuickEditModal('${item.id}')" title="사진/도수/노트 빠른 편집">
         <div class="admin-item-name">${item.starred ? '<span style="color:var(--gold);">\u2605 </span>' : ''}${escapeHtml(item.name)}</div>
         <div class="admin-item-price">${adminPriceLine(item)}</div>
@@ -3110,7 +3119,7 @@ function buildImageChange(id, state, value, orig) {
   const cleanup = [];
   if (state === 'set' && value) {
     if (isDataImage(value)) {
-      const ver = Date.now();
+      const ver = newImageVer();
       imageUpload = { ver, data: value };
       values.imageVer = ver;
       values.image = null;
@@ -3118,12 +3127,12 @@ function buildImageChange(id, state, value, orig) {
     } else {
       values.image = value;          // 외부 URL 은 항목에 그대로
       values.imageVer = null;
-      if (orig && orig.imageVer) cleanup.push({ id });
+      if (orig && orig.imageVer) cleanup.push({ id, ver: orig.imageVer });
     }
   } else if (state === 'clear' || (state === 'set' && !value)) {
     values.image = null;
     values.imageVer = null;
-    if (orig && orig.imageVer) cleanup.push({ id });
+    if (orig && orig.imageVer) cleanup.push({ id, ver: orig.imageVer });
   }
   return { values, imageUpload, cleanup };
 }
@@ -3250,10 +3259,25 @@ function makePlaceholderEl() {
   return el;
 }
 
+let detailSeq = 0;
 window.openDetailModal = function(id) {
   const item = findItem(id);
   if (!item) return;
+  detailModal.dataset.itemId = item.id;
+  renderDetail(item);
+  detailModal.style.display = 'flex';
+};
 
+// 열려 있는 상세창을 최신 데이터로 다시 그린다 (다른 기기의 변경이 도착했을 때). 항목이 사라졌으면 닫는다.
+function refreshOpenDetail() {
+  if (!detailModal || detailModal.style.display !== 'flex') return;
+  const item = findItem(detailModal.dataset.itemId);
+  if (!item) { detailModal.style.display = 'none'; return; }
+  renderDetail(item);
+}
+
+function renderDetail(item) {
+  const seq = ++detailSeq;   // 오래된 사진 응답이 새 화면을 덮지 않도록
   const imgWrap = document.getElementById('detail-image-wrap');
   const closeBtn = document.getElementById('btn-detail-close');
   imgWrap.innerHTML = '';
@@ -3277,7 +3301,7 @@ window.openDetailModal = function(id) {
     if (item.imageVer) {
       // 사진은 열 때 한 장만 서버에서 받아온다
       loadImage(item.id, item.imageVer).then(url => {
-        if (url && detailModal.dataset.itemId === item.id && ph.parentNode) ph.replaceWith(makeDetailImg(url));
+        if (url && detailSeq === seq && detailModal.dataset.itemId === item.id && ph.parentNode) ph.replaceWith(makeDetailImg(url));
       });
     }
   }
@@ -3349,9 +3373,7 @@ window.openDetailModal = function(id) {
     row.innerHTML = `<div class="detail-price-label">Bottle</div><div class="detail-price-value">${bottleSoldOut(item) ? '<span style="font-size:14px;color:var(--text-muted);letter-spacing:2px;">SOLD OUT</span>' : bottlePriceHtml(item, lang === 'en' ? 'KRW' : '원')}</div>`;
     pricesEl.appendChild(row);
   }
-
-  detailModal.style.display = 'flex';
-};
+}
 
 document.getElementById('btn-detail-close').onclick = () => {
   detailModal.style.display = 'none';
@@ -3491,20 +3513,27 @@ document.getElementById('btn-delete-confirm').onclick = () => {
   const id = deleteTargetId;
   const item = findItem(id);
   // 메뉴에서 먼저 지우고, 성공한 뒤에만 사진을 지운다 (실패하면 창이 열린 채 남아 다시 시도할 수 있다)
-  const op = { type: 'remove', id, cleanup: (item && item.imageVer) ? [{ id }] : [], label: '메뉴 삭제' };
+  const op = { type: 'remove', id, cleanup: (item && item.imageVer) ? [{ id, ver: item.imageVer }] : [], label: '메뉴 삭제' };
   submitFromModal(op, deleteModal, document.getElementById('btn-delete-confirm'), () => { deleteTargetId = null; renderAdminList(); });
 };
 
 // ===== Export / Import =====
 document.getElementById('btn-export').onclick = async () => {
-  // 사진은 /images 에 따로 있으므로, 백업 파일에는 예전처럼 합쳐서 넣는다
-  let full;
+  // 백업 = 서버가 확정한 메뉴 + 그 메뉴가 가리키는 사진. 하나라도 빠지면 파일을 만들지 않는다.
+  if (pendingOps.length || migrationPromise || replaceInProgress) { alert('저장이 진행 중입니다. 끝난 뒤 다시 내보내주세요.'); return; }
+  let result;
   try {
-    full = await withInlineImages(viewItems());
+    result = await withInlineImages(JSON.parse(JSON.stringify(items)));
   } catch (e) {
-    if (!confirm('사진을 불러오지 못했습니다 (' + errMsg(e) + ').\n사진 없이 내보낼까요?')) return;
-    full = viewItems().map(slimItem);
+    alert('사진을 불러오지 못해 백업을 만들지 않았습니다 (' + errMsg(e) + ').\n인터넷 연결을 확인하고 다시 시도해주세요.');
+    return;
   }
+  if (result.missing.length) {
+    const names = result.missing.slice(0, 10).map(m => `${m.name} (${m.id})`).join(', ');
+    alert(`사진 ${result.missing.length}장을 찾지 못해 백업을 만들지 않았습니다.\n누락: ${names}${result.missing.length > 10 ? ' …' : ''}\n인터넷 연결을 확인하고 다시 시도해주세요.`);
+    return;
+  }
+  const full = result.items;
   const blob = new Blob([JSON.stringify(full, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
